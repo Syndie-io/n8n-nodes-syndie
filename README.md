@@ -1,6 +1,6 @@
 
 
-# n8n-nodes-starter
+# n8n-nodes-syndie
 
 This repo contains example nodes to help you get started building your own custom integrations for [n8n](https://n8n.io). It includes the node linter and other dependencies.
 
