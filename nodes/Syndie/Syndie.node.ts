@@ -40,7 +40,7 @@ export class Syndie implements INodeType {
 				displayName: 'Backend URL',
 				name: 'backendUrl',
 				type: 'string',
-				default: 'http://localhost:3000/api/integrations/automation/n8n/hooks/subscribe',
+				default: 'https://app-syndie-io-git-dev-latest-syndieio.vercel.app/api/integrations/automation/n8n/hooks/subscribe',
 				description: 'URL to send the webhook ID to your backend',
 				required: true,
 			},

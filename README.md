@@ -2,47 +2,65 @@
 
 # n8n-nodes-syndie
 
-This repo contains example nodes to help you get started building your own custom integrations for [n8n](https://n8n.io). It includes the node linter and other dependencies.
+This is an n8n community node for [Syndie.io](https://syndie.io), an AI-powered sales and outreach automation platform. This node allows you to integrate Syndie.io into your n8n workflows, enabling you to automate your sales and marketing processes.
 
-To make your custom node available to the community, you must create it as an npm package, and [submit it to the npm registry](https://docs.npmjs.com/packages-and-modules/contributing-packages-to-the-registry).
+[n8n](https://n8n.io) is a free and source-available workflow automation tool.
 
-If you would like your node to be available on n8n cloud you can also [submit your node for verification](https://docs.n8n.io/integrations/creating-nodes/deploy/submit-community-nodes/).
+[Installation](#installation)
+[Operations](#operations)
+[Credentials](#credentials)
+[Compatibility](#compatibility)
+[Usage](#usage)
+[Resources](#resources)
 
-## Prerequisites
+## Installation
 
-You need the following installed on your development machine:
+Follow the [installation guide](https://docs.n8n.io/integrations/community-nodes/installation/) in the n8n community nodes documentation.
 
-* [git](https://git-scm.com/downloads)
-* Node.js and npm. Minimum version Node 20. You can find instructions on how to install both using nvm (Node Version Manager) for Linux, Mac, and WSL [here](https://github.com/nvm-sh/nvm). For Windows users, refer to Microsoft's guide to [Install NodeJS on Windows](https://docs.microsoft.com/en-us/windows/dev-environment/javascript/nodejs-on-windows).
-* Install n8n with:
-  ```
-  npm install n8n -g
-  ```
-* Recommended: follow n8n's guide to [set up your development environment](https://docs.n8n.io/integrations/creating-nodes/build/node-development-environment/).
+## Operations
 
-## Using this starter
+This n8n node acts as a trigger, allowing you to start workflows based on events within your Syndie.io campaigns. When a specific event occurs in a Syndie.io campaign (like a lead responding or a message being sent), this node will trigger and fetch the relevant data from that campaign, making it available in your n8n workflow.
 
-These are the basic steps for working with the starter. For detailed guidance on creating and publishing nodes, refer to the [documentation](https://docs.n8n.io/integrations/creating-nodes/).
+Specifically, this node allows you to:
 
-1. [Generate a new repository](https://github.com/n8n-io/n8n-nodes-starter/generate) from this template repository.
-2. Clone your new repo:
-   ```
-   git clone https://github.com/<your organization>/<your-repo-name>.git
-   ```
-3. Run `npm i` to install dependencies.
-4. Open the project in your editor.
-5. Browse the examples in `/nodes` and `/credentials`. Modify the examples, or replace them with your own nodes.
-6. Update the `package.json` to match your details.
-7. Run `npm run lint` to check for errors or `npm run lintfix` to automatically fix errors when possible.
-8. Test your node locally. Refer to [Run your node locally](https://docs.n8n.io/integrations/creating-nodes/test/run-node-locally/) for guidance.
-9. Replace this README with documentation for your node. Use the [README_TEMPLATE](README_TEMPLATE.md) to get started.
-10. Update the LICENSE file to use your details.
-11. [Publish](https://docs.npmjs.com/packages-and-modules/contributing-packages-to-the-registry) your package to npm.
+-   Trigger a workflow when an event happens in a Syndie.io campaign.
+-   Fetch data associated with that event (e.g., lead details, message content).
 
-## More information
+## Credentials
 
-Refer to our [documentation on creating nodes](https://docs.n8n.io/integrations/creating-nodes/) for detailed information on building your own nodes.
+To use this node, you will need:
+
+-   An active Syndie.io account. You can sign up at [syndie.io](https://syndie.io).
+-   Your Syndie.io API credentials to connect to your account.
+
+To get started:
+
+1.  Install this node package in your n8n instance.
+2.  Create a new workflow in n8n.
+3.  Add the Syndie Trigger node to your workflow.
+4.  Configure the node with your Syndie.io credentials (OAuth2).
+5.  Select the campaign and the event that should trigger the workflow.
+6.  Connect other nodes to the Syndie Trigger to process the data.
+
+## Compatibility
+
+This node is tested against n8n version 1.0.0 and later.
+
+## Usage
+
+An example workflow could be:
+
+1.  The Syndie Trigger node is configured to listen for "Lead Replied" events in a campaign.
+2.  When a lead replies in Syndie.io, the workflow is triggered, and the node outputs the lead's information and the message they sent.
+3.  A "Set" node can be used to format the data.
+4.  A Slack node then sends a notification to your sales team with the lead's details and their message, allowing for a quick follow-up.
+
+## Resources
+
+-   [n8n community nodes documentation](https://docs.n8n.io/integrations/community-nodes/)
+-   [Syndie.io website](https://syndie.io)
+-   [Syndie.io Help Center](https://help.syndie.io/en/)
 
 ## License
 
-[MIT](https://github.com/n8n-io/n8n-nodes-starter/blob/master/LICENSE.md)
+[MIT](LICENSE.md)

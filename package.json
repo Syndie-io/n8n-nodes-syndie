@@ -1,15 +1,15 @@
 {
   "name": "n8n-nodes-syndie",
-  "version": "0.1.0",
+  "version": "0.1.5",
   "description": "n8n node for the Syndie API",
   "keywords": [
     "n8n-community-node-package"
   ],
   "license": "MIT",
-  "homepage": "https://syndie.app",
+  "homepage": "https://syndie.io",
   "author": {
     "name": "Syndie",
-    "email": "support@syndie.app"
+    "email": "support@syndie.io"
   },
   "repository": {
     "type": "git",
