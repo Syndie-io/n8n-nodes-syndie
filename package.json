@@ -13,7 +13,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/satvik-syndie/n8n-syndie.git"
+    "url": "https://github.com/Syndie-io/n8n-nodes-syndie.git"
   },
   "engines": {
     "node": ">=20.15"

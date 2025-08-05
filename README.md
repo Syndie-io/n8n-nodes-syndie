@@ -1,66 +1,82 @@
+# Syndie n8n Community Node
+
+Easily connect your n8n workflows to [Syndie.io](https://syndie.io) using OAuth2 and webhooks.
+
+## Features
+
+-   Secure OAuth2 authentication (PKCE flow)
+-   Webhook trigger for Syndie events
+-   Send webhook registration to your backend
+-   Use with Google Sheets, HTTP Request, and more
+
+---
+
+## Getting Started
+
+### 1. Install the Node
+
+```bash
+npm install n8n-nodes-syndie
+```
+
+Or, for local development:
+
+```bash
+npm run build
+npm link
+# In your n8n custom directory:
+npm link n8n-nodes-syndie
+```
+
+### 2. Add the Syndie Node to Your Workflow
+
+* In n8n, search for "Syndie" in the nodes panel.
+* Drag the node into your workflow.
+
+### 3. Connect to Syndie.io (OAuth2)
+
+* Click the node and select "Syndie OAuth2 API" credentials.
+* Click "Connect" and follow the OAuth2 flow.
 
 
-# n8n-nodes-syndie
+### 4. Webhook Registration
 
-This is an n8n community node for [Syndie.io](https://syndie.io), an AI-powered sales and outreach automation platform. This node allows you to integrate Syndie.io into your n8n workflows, enabling you to automate your sales and marketing processes.
+* Execute the node to send the webhook url to the backend for testing 
+* Alternatively you can just activate your n8n workflow to execute this node and send the webhook to the backend
 
-[n8n](https://n8n.io) is a free and source-available workflow automation tool.
+---
 
-[Installation](#installation)
-[Operations](#operations)
-[Credentials](#credentials)
-[Compatibility](#compatibility)
-[Usage](#usage)
-[Resources](#resources)
+## Example Workflow: Syndie → Google Sheets
 
-## Installation
+1.  **Syndie Trigger Node**
+    * Triggers on Syndie webhook event
+2.  **Google Sheets Node**
+    * Appends received data to a sheet
 
-Follow the [installation guide](https://docs.n8n.io/integrations/community-nodes/installation/) in the n8n community nodes documentation.
+### Sample Workflow Steps
 
-## Operations
+* Add the Syndie node (as trigger)
+* Add a Google Sheets node (as action)
+* Connect them
+* Map the incoming data from Syndie to the columns in Google Sheets
 
-This n8n node acts as a trigger, allowing you to start workflows based on events within your Syndie.io campaigns. When a specific event occurs in a Syndie.io campaign (like a lead responding or a message being sent), this node will trigger and fetch the relevant data from that campaign, making it available in your n8n workflow.
 
-Specifically, this node allows you to:
+## Troubleshooting
 
--   Trigger a workflow when an event happens in a Syndie.io campaign.
--   Fetch data associated with that event (e.g., lead details, message content).
+* Ensure OAuth2 credentials are set up in n8n
+* Check the n8n logs for webhook registration errors
 
-## Credentials
-
-To use this node, you will need:
-
--   An active Syndie.io account. You can sign up at [syndie.io](https://syndie.io).
--   Your Syndie.io API credentials to connect to your account.
-
-To get started:
-
-1.  Install this node package in your n8n instance.
-2.  Create a new workflow in n8n.
-3.  Add the Syndie Trigger node to your workflow.
-4.  Configure the node with your Syndie.io credentials (OAuth2).
-5.  Select the campaign and the event that should trigger the workflow.
-6.  Connect other nodes to the Syndie Trigger to process the data.
-
-## Compatibility
-
-This node is tested against n8n version 1.0.0 and later.
-
-## Usage
-
-An example workflow could be:
-
-1.  The Syndie Trigger node is configured to listen for "Lead Replied" events in a campaign.
-2.  When a lead replies in Syndie.io, the workflow is triggered, and the node outputs the lead's information and the message they sent.
-3.  A "Set" node can be used to format the data.
-4.  A Slack node then sends a notification to your sales team with the lead's details and their message, allowing for a quick follow-up.
-
-## Resources
-
--   [n8n community nodes documentation](https://docs.n8n.io/integrations/community-nodes/)
--   [Syndie.io website](https://syndie.io)
--   [Syndie.io Help Center](https://help.syndie.io/en/)
+---
 
 ## License
 
-[MIT](LICENSE.md)
+MIT
+
+## Support
+
+For help, contact [support@syndie.io](mailto:support@syndie.io)
+
+## Links
+
+* [Syndie.io](https://syndie.io)
+* [n8n Documentation](https://docs.n8n.io)
