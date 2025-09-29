@@ -14,7 +14,7 @@ export class SyndieOAuth2Api implements ICredentialType {
 	};
 
 	displayName = 'Syndie OAuth2 API';
-	documentationUrl = 'https://docs.syndie.app';
+	documentationUrl = 'https://docs.google.com/document/d/1ebphd5HvkFhFgU7H_yAQDMDWEu6DBzfOzhwVjHlYCxM/edit?tab=t.0#heading=h.ha73d5u5qe0e';
 
 	properties: INodeProperties[] = [
 		{
@@ -26,22 +26,23 @@ export class SyndieOAuth2Api implements ICredentialType {
 		{
 			displayName: 'Client ID',
 			name: 'clientId',
-			type: 'hidden',
-			default: 'd4a5b1c2-e3f4-5a6b-7c8d-9e0f1a2b3c4d-n8n-syndie',
+			type: 'string',
+			default: '',
 			required: true,
+			description: 'The Client ID provided by Syndie for your application',
 		},
 		{
 			displayName: 'Authorization URL',
 			name: 'authUrl',
 			type: 'hidden',
-			default: 'https://app-syndie-io-git-dev-latest-syndieio.vercel.app/api/integrations/automation/n8n/oauth/authorize',
+			default: 'https://syndie.io/api/integrations/automation/n8n/oauth/authorize',
 			required: true,
 		},
 		{
 			displayName: 'Access Token URL',
 			name: 'accessTokenUrl',
 			type: 'hidden',
-			default: 'https://app-syndie-io-git-dev-latest-syndieio.vercel.app/api/integrations/automation/n8n/oauth/callback',
+			default: 'https://syndie.io/api/integrations/automation/n8n/oauth/callback',
 			required: true,
 		},
 		{

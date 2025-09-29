@@ -6,7 +6,7 @@ import type {
 	INodeProperties,
 	IHookFunctions,
 } from 'n8n-workflow';
-import { NodeConnectionType } from 'n8n-workflow';
+import { NodeApiError, NodeOperationError } from 'n8n-workflow';
 
 export class Syndie implements INodeType {
 	description: INodeTypeDescription = {
@@ -20,7 +20,7 @@ export class Syndie implements INodeType {
 			name: 'Syndie',
 		},
 		inputs: [],
-		outputs: [NodeConnectionType.Main],
+		outputs: ['main' as unknown as import('n8n-workflow').NodeConnectionType],
 		credentials: [
 			{
 				name: 'syndieOAuth2Api',
@@ -40,9 +40,16 @@ export class Syndie implements INodeType {
 				displayName: 'Backend URL',
 				name: 'backendUrl',
 				type: 'string',
-				default: 'https://app-syndie-io-git-dev-latest-syndieio.vercel.app/api/integrations/automation/n8n/hooks/subscribe',
+				default: 'https://syndie.io/api/integrations/automation/n8n/hooks/subscribe',
 				description: 'URL to send the webhook ID to your backend',
 				required: true,
+			},
+			{
+				displayName: 'Continue on Fail',
+				name: 'continueOnFail',
+				type: 'boolean',
+				default: false,
+				description: 'Whether to continue when the webhook registration fails',
 			},
 		] as INodeProperties[],
 	};
@@ -56,6 +63,7 @@ export class Syndie implements INodeType {
 				[
 					{
 						json: bodyData,
+						pairedItem: { item: 0 },
 					},
 				],
 			],
@@ -77,7 +85,7 @@ export class Syndie implements INodeType {
 				const workflow = this.getWorkflow();
 
 				try {
-					const response = await this.helpers.requestWithAuthentication.call(
+					await this.helpers.requestWithAuthentication.call(
 						this,
 						'syndieOAuth2Api',
 						{
@@ -96,14 +104,26 @@ export class Syndie implements INodeType {
 						}
 					);
 
-					console.log('Webhook registered successfully:', response);
 					return true;
 				} catch (error) {
-					console.error('Failed to register webhook:', error);
-					throw error;
+					const continueOnFail = this.getNodeParameter('continueOnFail', false) as boolean;
+					if (continueOnFail) {
+						return false;
+					}
+					
+					if (error.response) {
+						throw new NodeApiError(this.getNode(), error, {
+							message: `Failed to register webhook: ${error.response.status} ${error.response.statusText}`,
+							description: error.response.data ? JSON.stringify(error.response.data) : undefined,
+						});
+					}
+
+					throw new NodeOperationError(this.getNode(), 'Failed to register webhook', {
+						description: error.message,
+					});
 				}
 			},
-			// Delete method (required by n8n but we don't need to unregister)
+			
 			delete: async function (this: IHookFunctions): Promise<boolean> {
 				// Just return true - we don't need to unregister webhooks
 				return true;
