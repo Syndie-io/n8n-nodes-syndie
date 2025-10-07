@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-syndie",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "n8n node for the Syndie API",
   "keywords": [
     "n8n-community-node-package"
@@ -48,6 +48,6 @@
     "typescript": "^5.8.3"
   },
   "peerDependencies": {
-    "n8n-workflow": "*"
+    "n8n-workflow": "^1.112.0"
   }
 }
