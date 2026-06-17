@@ -4,6 +4,8 @@ export class SyndieOAuth2Api implements ICredentialType {
 	name = 'syndieOAuth2Api';
 	extends = ['oAuth2Api'];
 
+	icon = { light: 'file:SyndieLogo.svg', dark: 'file:SyndieLogo.dark.svg' } as const;
+
 	oauth2Options = {
 		includeCredentialsOnRefresh: true,
 		tokenResponseProperty: {
@@ -14,7 +16,8 @@ export class SyndieOAuth2Api implements ICredentialType {
 	};
 
 	displayName = 'Syndie OAuth2 API';
-	documentationUrl = 'https://docs.google.com/document/d/1ebphd5HvkFhFgU7H_yAQDMDWEu6DBzfOzhwVjHlYCxM/edit?tab=t.0#heading=h.ha73d5u5qe0e';
+	documentationUrl =
+		'https://docs.google.com/document/d/1ebphd5HvkFhFgU7H_yAQDMDWEu6DBzfOzhwVjHlYCxM/edit?tab=t.0#heading=h.ha73d5u5qe0e';
 
 	properties: INodeProperties[] = [
 		{

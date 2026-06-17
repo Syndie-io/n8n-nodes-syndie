@@ -5,21 +5,22 @@ import type {
 	IWebhookResponseData,
 	INodeProperties,
 	IHookFunctions,
-	} from 'n8n-workflow';
-	import { NodeApiError, NodeOperationError, NodeConnectionTypes } from 'n8n-workflow';
-	
+} from 'n8n-workflow';
+import { NodeApiError, NodeOperationError, NodeConnectionTypes } from 'n8n-workflow';
 
 export class SyndieTrigger implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'Syndie Trigger',
 		name: 'syndieTrigger',
-		icon: 'file:SyndieLogo.svg',
+		icon: { light: 'file:SyndieLogo.svg', dark: 'file:SyndieLogo.dark.svg' },
 		group: ['trigger'],
 		version: 1,
+		subtitle: '=Webhook: {{$parameter["backendUrl"]}}',
 		description: 'Syndie webhook trigger with OAuth integration',
 		defaults: {
 			name: 'Syndie',
 		},
+		usableAsTool: true,
 		inputs: [],
 		outputs: [NodeConnectionTypes.Main],
 		credentials: [
@@ -37,27 +38,26 @@ export class SyndieTrigger implements INodeType {
 			},
 		],
 		properties: [
-			   {
-				   displayName: 'Backend URL',
-				   name: 'backendUrl',
-				   type: 'string',
-				   default: 'https://syndie.io/api/integrations/automation/n8n/hooks/subscribe',
-				   description: 'URL to send the webhook ID to your backend',
-				   required: true,
-			   },
+			{
+				displayName: 'Backend URL',
+				name: 'backendUrl',
+				type: 'string',
+				default: 'https://syndie.io/api/integrations/automation/n8n/hooks/subscribe',
+				description: 'URL to send the webhook ID to your backend',
+				required: true,
+			},
 		] as INodeProperties[],
 	};
 
 	// This method is called when the webhook receives data
 	async webhook(this: IWebhookFunctions): Promise<IWebhookResponseData> {
 		const bodyData = this.getBodyData();
-		
+
 		return {
 			workflowData: [
 				[
 					{
 						json: bodyData,
-						pairedItem: { item: 0 },
 					},
 				],
 			],
@@ -78,39 +78,35 @@ export class SyndieTrigger implements INodeType {
 				const backendUrl = this.getNodeParameter('backendUrl') as string;
 				const workflow = this.getWorkflow();
 
-				   try {
-					   await this.helpers.httpRequestWithAuthentication.call(
-						   this,
-						   'syndieOAuth2Api',
-						   {
-							   method: 'POST',
-							   url: backendUrl,
-							   body: {
-								   automation_name: workflow.name || `n8n-workflow-${workflow.id}`,
-								   automation_id: workflow.id,
-								   event_type: null,
-								   target_url: webhookUrl,
-							   },
-							   json: true,
-							   headers: {
-								   'Content-Type': 'application/json',
-							   },
-						   }
-					   );
-					   return true;
-				   } catch (error) {
-					   if (error.response) {
-						   throw new NodeApiError(this.getNode(), error, {
-							   message: `Failed to register webhook: ${error.response.status} ${error.response.statusText}`,
-							   description: error.response.data ? JSON.stringify(error.response.data) : undefined,
-						   });
-					   }
-					   throw new NodeOperationError(this.getNode(), 'Failed to register webhook', {
-						   description: error.message,
-					   });
-				   }
+				try {
+					await this.helpers.httpRequestWithAuthentication.call(this, 'syndieOAuth2Api', {
+						method: 'POST',
+						url: backendUrl,
+						body: {
+							automation_name: workflow.name || `n8n-workflow-${workflow.id}`,
+							automation_id: workflow.id,
+							event_type: null,
+							target_url: webhookUrl,
+						},
+						json: true,
+						headers: {
+							'Content-Type': 'application/json',
+						},
+					});
+					return true;
+				} catch (error) {
+					if (error.response) {
+						throw new NodeApiError(this.getNode(), error, {
+							message: `Failed to register webhook: ${error.response.status} ${error.response.statusText}`,
+							description: error.response.data ? JSON.stringify(error.response.data) : undefined,
+						});
+					}
+					throw new NodeOperationError(this.getNode(), 'Failed to register webhook', {
+						description: error.message,
+					});
+				}
 			},
-			
+
 			delete: async function (this: IHookFunctions): Promise<boolean> {
 				// Just return true - we don't need to unregister webhooks
 				return true;

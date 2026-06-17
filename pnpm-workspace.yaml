@@ -1,0 +1,7 @@
+# pnpm 11 build-script approvals.
+# true  = run the package's install/build scripts
+# false = skip them (isolated-vm is a heavy native dep n8n only needs at runtime)
+allowBuilds:
+  eslint-plugin-n8n-nodes-base: true
+  unrs-resolver: true
+  isolated-vm: false
