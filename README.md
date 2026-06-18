@@ -16,7 +16,7 @@ Easily connect your n8n workflows to [Syndie.io](https://syndie.io) using OAuth2
 ### 1. Install the Node
 
 ```bash
-npm install n8n-nodes-syndie
+npm install @syndie/n8n-nodes-syndie
 ```
 
 Or, for local development:
@@ -25,7 +25,7 @@ Or, for local development:
 npm run build
 npm link
 # In your n8n custom directory:
-npm link n8n-nodes-syndie
+npm link @syndie/n8n-nodes-syndie
 ```
 
 ### 2. Add the Syndie Node to Your Workflow
