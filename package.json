@@ -1,7 +1,10 @@
 {
-	"name": "n8n-nodes-syndie",
-	"version": "0.2.0",
+	"name": "@syndie/n8n-nodes-syndie",
+	"version": "0.1.0",
 	"description": "n8n node for the Syndie API",
+	"publishConfig": {
+		"access": "public"
+	},
 	"keywords": [
 		"n8n-community-node-package"
 	],

@@ -120,12 +120,29 @@ pnpm run format     # prettier
 
 ---
 
-## 5. Version: `0.1.9` → `0.2.0`
+## 5. Package rename + fresh version: `@syndie/n8n-nodes-syndie@0.1.0`
 
-`0.1.9` is already published on npm, and **npm permanently rejects
-re-publishing an existing version**. The next release must use a new number, so
-the branch is set to `0.2.0` (minor bump: behavior change in `delete` + tooling
-migration, backward-compatible for users).
+The original unscoped `n8n-nodes-syndie` was published under a **different npm
+account** we no longer control, and npm package names are global and permanent —
+we can't re-publish or take over that name. So this is a **fresh, scoped package**
+under the `syndie` org:
+
+- `package.json` `name` → `@syndie/n8n-nodes-syndie`.
+- `version` reset to `0.1.0` (a new package starts fresh; the old `0.1.x` history
+  belongs to the other account).
+- Added `publishConfig.access: "public"` — scoped packages publish privately by
+  default, which would fail for a community node.
+
+Installs in n8n as `@syndie/n8n-nodes-syndie`. n8n supports scoped community-node
+names (`@scope/n8n-nodes-*`).
+
+### First-publish bootstrap (Method 2 → Method 1)
+npm Trusted Publishing (OIDC) is configured on the **package's settings page**,
+which doesn't exist until the package has been published once. So the **first**
+publish uses an `NPM_TOKEN` (Option B in `publish.yml`) — token auth still emits
+provenance because the workflow sets `id-token: write`. After the first release:
+configure the Trusted Publisher on the package, switch `publish.yml` back to
+Method 1 (OIDC), and delete the `NPM_TOKEN` secret.
 
 ---
 
@@ -150,14 +167,16 @@ response and adjust if the backend nests it differently.
 
 **Committing or pushing the `dev` branch does NOT change the npm package.**
 A publish only happens when a version **tag** (`*.*.*`) is pushed, which triggers
-`.github/workflows/publish.yml` → `npm publish` with provenance. Until then,
-`n8n-nodes-syndie@0.1.9` on npm is untouched.
+`.github/workflows/publish.yml` → `npm publish` with provenance.
 
-To release `0.2.0` when ready:
+To release `0.1.0` (first publish of `@syndie/n8n-nodes-syndie`):
 1. Merge `dev` → the default branch.
-2. Set up npm auth for the Action (Trusted Publisher **or** an `NPM_TOKEN`
-   repo secret — see comments in `publish.yml`).
-3. Push tag `0.2.0` (or run `pnpm run release`, which bumps/tags/pushes).
+2. Create a Granular Access Token on npm (scoped to the `@syndie` org, read+write)
+   and add it as the `NPM_TOKEN` repo secret — the first publish uses Method 2
+   (see §5 and the comments in `publish.yml`).
+3. Push tag `0.1.0` (or run `pnpm run release`, which bumps/tags/pushes).
+4. After it lands: add the Trusted Publisher on the package settings page, switch
+   `publish.yml` to Method 1 (OIDC), and delete the `NPM_TOKEN` secret.
 
 ---
 
