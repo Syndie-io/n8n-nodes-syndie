@@ -68,10 +68,16 @@ jobs:
 
       - name: Release
         # Publishes to npm with a provenance attestation (requires id-token: write).
-        # Option A (OIDC): leave NPM_TOKEN unset.
-        # Option B (token): set NPM_TOKEN in repo secrets.
-        run: |
-          [ -n "$NPM_TOKEN" ] && npm config set //registry.npmjs.org/:_authToken "$NPM_TOKEN"
-          pnpm run release
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        #
+        # ── Method 1 (Option A — OIDC Trusted Publishing) — ACTIVE ──
+        # No NPM_TOKEN needed; GitHub's OIDC token authenticates the publish.
+        run: pnpm run release
+        #
+        # ── Method 2 (Option B — npm Automation Token) — kept, commented out ──
+        # To switch: comment out the `run:` line above, then uncomment the
+        # `run:` block and `env:` block below, and add the NPM_TOKEN repo secret.
+        # run: |
+        #   [ -n "$NPM_TOKEN" ] && npm config set //registry.npmjs.org/:_authToken "$NPM_TOKEN"
+        #   pnpm run release
+        # env:
+        #   NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
