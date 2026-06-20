@@ -6,6 +6,9 @@ contract it depends on.
 > Source files:
 > - Node: `nodes/Syndie/SyndieTrigger.node.ts`
 > - Credential: `credentials/SyndieOAuth2Api.credentials.ts`
+>
+> For the outbound **Syndie** action node (push a lead *into* Syndie), see
+> [`n8n-action.md`](./n8n-action.md).
 
 ---
 
@@ -87,9 +90,14 @@ The node implements n8n's webhook lifecycle methods.
 - Meaning: n8n thinks the webhook never exists, so `create` runs on **every**
   activation. Your backend must deduplicate registrations.
 
-### d) `delete` — currently a no-op (returns `true`)
-- Deactivating the workflow does **not** tell Syndie to stop sending. The
-  backend keeps the (now-dead) `target_url`.
+### d) `delete` — unregisters the webhook on the backend
+- Reads the `webhookId` that `create` stored in workflow static data.
+- Derives the unsubscribe URL from the Backend URL
+  (`.../n8n/hooks/subscribe` → `.../n8n/hooks/<id>`) and calls `DELETE`.
+- A `404` is treated as success ("already gone"). Any other error is thrown and
+  the stored id is **kept**, so a later retry can still unsubscribe.
+- If no id was stored (e.g. the workflow was activated before this behavior
+  existed), `delete` is a safe no-op.
 
 ---
 
@@ -181,22 +189,17 @@ objects with `phoneNumber`, `jobtitle`, etc.
 
 ## 5. Known gaps / cleanup candidates
 
-1. **Manifest path mismatch** — `package.json` registers
-   `dist/nodes/Syndie/Syndie.node.js`, but the source compiles to
-   `SyndieTrigger.node.js`. After a build n8n looks for a file that isn't there.
-2. **No `event_type` selection** — every workflow gets the `default` stream (§4).
-3. **`delete` never unsubscribes — but the backend endpoint EXISTS.** The backend
-   already implements `DELETE /n8n/hooks/:webhookId` (`automation.service.ts`
-   `unsubscribe`), which flips `isActive: false`. The node's `delete` just
-   `return true`s instead of calling it, so deactivating a workflow leaves a live
-   subscription. Easy fix: capture the `id` returned by `subscribe` and DELETE it
-   in `delete`.
-4. **`checkExists` always false** — re-registers on every activation. The backend
+> Resolved since earlier drafts: the manifest path now matches the build,
+> `delete` unsubscribes properly (§3d), and the empty `index.js` was removed
+> (n8n loads via the `n8n` manifest). See `dev-branch-modernization.md`.
+
+1. **No `event_type` selection** — every workflow gets the `default` stream (§4).
+   To support `lead_connected` vs `campaign_completed` as distinct triggers,
+   expose `event_type` as a node dropdown and pass it in the subscribe body.
+2. **`checkExists` always false** — re-registers on every activation. The backend
    dedupes (it looks up an existing identical row and returns it), so this is
    tolerable but wasteful.
-5. **No payload signature verification** — the `webhook` handler trusts any POST
+3. **No payload signature verification** — the `webhook` handler trusts any POST
    to the URL. The backend doesn't sign outbound events yet either; adding an
    HMAC header on both sides would close this.
-6. **Payload shape mismatch** — real vs test payloads differ (§4b).
-7. **`index.js` is empty** — harmless (n8n loads via the `n8n` manifest), but
-   worth noting.
+4. **Payload shape mismatch** — real vs test payloads differ (§4b).

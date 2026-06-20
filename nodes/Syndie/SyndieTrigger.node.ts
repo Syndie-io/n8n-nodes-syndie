@@ -8,6 +8,34 @@ import type {
 } from 'n8n-workflow';
 import { NodeApiError, NodeOperationError, NodeConnectionTypes } from 'n8n-workflow';
 
+/**
+ * Resolve the Syndie subscribe endpoint.
+ * Priority: explicit "Backend URL Override" node param → otherwise derive from
+ * the Environment selected on the credential (single source of truth so the
+ * webhook calls hit the same API as the OAuth flow).
+ */
+async function resolveSubscribeUrl(ctx: IHookFunctions): Promise<string> {
+	const override = ((ctx.getNodeParameter('backendUrl', '') as string) || '').trim();
+	if (override) {
+		return override;
+	}
+
+	const cred = await ctx.getCredentials('syndieOAuth2Api');
+	const env = (cred?.environment as string) || '';
+	const base = (
+		env === 'custom' ? ((cred?.customBaseUrl as string) || '') : env
+	).replace(/\/$/, '');
+
+	if (!base) {
+		throw new NodeOperationError(
+			ctx.getNode(),
+			'No Syndie API base URL configured. Set the Environment on the credential or fill in the Backend URL Override.',
+		);
+	}
+
+	return `${base}/api/integrations/automation/n8n/hooks/subscribe`;
+}
+
 export class SyndieTrigger implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'Syndie Trigger',
@@ -15,7 +43,7 @@ export class SyndieTrigger implements INodeType {
 		icon: { light: 'file:SyndieLogo.svg', dark: 'file:SyndieLogo.dark.svg' },
 		group: ['trigger'],
 		version: 1,
-		subtitle: '=Webhook: {{$parameter["backendUrl"]}}',
+		subtitle: 'Syndie webhook trigger',
 		description: 'Syndie webhook trigger with OAuth integration',
 		defaults: {
 			name: 'Syndie',
@@ -39,12 +67,14 @@ export class SyndieTrigger implements INodeType {
 		],
 		properties: [
 			{
-				displayName: 'Backend URL',
+				displayName: 'Backend URL Override',
 				name: 'backendUrl',
 				type: 'string',
-				default: 'https://syndie.io/api/integrations/automation/n8n/hooks/subscribe',
-				description: 'URL to send the webhook ID to your backend',
-				required: true,
+				default: '',
+				placeholder:
+					'https://api.syndie.io/api/integrations/automation/n8n/hooks/subscribe',
+				description:
+					'Optional. Full URL of the Syndie subscribe endpoint. Leave empty to use the Environment selected in the credential.',
 			},
 		] as INodeProperties[],
 	};
@@ -75,7 +105,7 @@ export class SyndieTrigger implements INodeType {
 			// Create/register the webhook
 			create: async function (this: IHookFunctions): Promise<boolean> {
 				const webhookUrl = this.getNodeWebhookUrl('default');
-				const backendUrl = this.getNodeParameter('backendUrl') as string;
+				const backendUrl = await resolveSubscribeUrl(this);
 				const workflow = this.getWorkflow();
 
 				try {
@@ -130,7 +160,7 @@ export class SyndieTrigger implements INodeType {
 					return true;
 				}
 
-				const backendUrl = this.getNodeParameter('backendUrl') as string;
+				const backendUrl = await resolveSubscribeUrl(this);
 				// Derive .../n8n/hooks/subscribe → .../n8n/hooks/<id>
 				const unsubscribeUrl = backendUrl.replace(/\/subscribe\/?$/, `/${webhookId}`);
 
