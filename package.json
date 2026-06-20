@@ -1,6 +1,6 @@
 {
 	"name": "@syndie/n8n-nodes-syndie",
-	"version": "0.1.1",
+	"version": "0.2.0",
 	"description": "n8n node for the Syndie API",
 	"publishConfig": {
 		"access": "public"
@@ -42,7 +42,8 @@
 			"dist/credentials/SyndieOAuth2Api.credentials.js"
 		],
 		"nodes": [
-			"dist/nodes/Syndie/SyndieTrigger.node.js"
+			"dist/nodes/Syndie/SyndieTrigger.node.js",
+			"dist/nodes/Syndie/Syndie.node.js"
 		]
 	},
 	"devDependencies": {

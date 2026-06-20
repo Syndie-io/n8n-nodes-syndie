@@ -27,6 +27,40 @@ export class SyndieOAuth2Api implements ICredentialType {
 			default: 'authorizationCode',
 		},
 		{
+			displayName: 'Environment',
+			name: 'environment',
+			type: 'options',
+			options: [
+				{
+					name: 'Production (api.syndie.io)',
+					value: 'https://api.syndie.io',
+				},
+				{
+					name: 'Beta / Staging',
+					value: 'https://m6b7diz5x8.ap-south-1.awsapprunner.com',
+				},
+				{
+					name: 'Localhost (http://localhost:3000)',
+					value: 'http://localhost:3000',
+				},
+				{
+					name: 'Custom…',
+					value: 'custom',
+				},
+			],
+			default: 'https://m6b7diz5x8.ap-south-1.awsapprunner.com',
+			description: 'Which Syndie API environment to connect to',
+		},
+		{
+			displayName: 'Custom Base URL',
+			name: 'customBaseUrl',
+			type: 'string',
+			default: '',
+			placeholder: 'https://my-host.example.com',
+			description: 'Base URL of the Syndie API (no trailing slash). Used only when Environment is "Custom".',
+			displayOptions: { show: { environment: ['custom'] } },
+		},
+		{
 			displayName: 'Client ID',
 			name: 'clientId',
 			type: 'string',
@@ -38,14 +72,16 @@ export class SyndieOAuth2Api implements ICredentialType {
 			displayName: 'Authorization URL',
 			name: 'authUrl',
 			type: 'hidden',
-			default: 'https://syndie.io/api/integrations/automation/n8n/oauth/authorize',
+			default:
+				'={{ ($self["environment"] === "custom" ? ($self["customBaseUrl"] || "").replace(/\\/$/, "") : $self["environment"]) + "/api/integrations/automation/n8n/oauth/authorize" }}',
 			required: true,
 		},
 		{
 			displayName: 'Access Token URL',
 			name: 'accessTokenUrl',
 			type: 'hidden',
-			default: 'https://syndie.io/api/integrations/automation/n8n/oauth/callback',
+			default:
+				'={{ ($self["environment"] === "custom" ? ($self["customBaseUrl"] || "").replace(/\\/$/, "") : $self["environment"]) + "/api/integrations/automation/n8n/oauth/callback" }}',
 			required: true,
 		},
 		{
