@@ -102,26 +102,10 @@ export class Syndie implements INodeType {
 						name: 'Create',
 						value: 'create',
 						action: 'Create a lead',
-						description: 'Add a lead to a Syndie campaign',
+						description: 'Add a lead to the connected Syndie account',
 					},
 				],
 				default: 'create',
-			},
-			{
-				displayName: 'Campaign ID',
-				name: 'campaignId',
-				type: 'string',
-				required: true,
-				default: '',
-				placeholder: '60a7b8c9d1e2f3a4b5c6d7e8',
-				description:
-					'The Syndie campaign the lead is added to. Must belong to the connected Syndie account.',
-				displayOptions: {
-					show: {
-						resource: ['lead'],
-						operation: ['create'],
-					},
-				},
 			},
 			{
 				displayName: 'Additional Fields',
@@ -213,20 +197,13 @@ export class Syndie implements INodeType {
 
 		for (let i = 0; i < items.length; i++) {
 			try {
-				const campaignId = ((this.getNodeParameter('campaignId', i, '') as string) || '').trim();
-				if (!campaignId) {
-					throw new NodeOperationError(this.getNode(), 'Campaign ID is required', {
-						itemIndex: i,
-					});
-				}
-
 				const additionalFields = this.getNodeParameter(
 					'additionalFields',
 					i,
 					{},
 				) as IDataObject;
 
-				const body: IDataObject = { campaignId };
+				const body: IDataObject = {};
 				for (const key of OPTIONAL_LEAD_FIELDS) {
 					const value = additionalFields[key];
 					if (value !== undefined && value !== null && `${value}`.trim() !== '') {
