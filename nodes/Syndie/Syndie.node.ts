@@ -204,6 +204,15 @@ export class Syndie implements INodeType {
 				) as IDataObject;
 
 				const body: IDataObject = {};
+
+				// Identify the source automation: the id of the n8n workflow this
+				// node runs in. The backend stores it on the external lead so leads
+				// can be traced back to the automation that produced them.
+				const automationId = this.getWorkflow()?.id;
+				if (automationId !== undefined && automationId !== null && `${automationId}` !== '') {
+					body.automationId = `${automationId}`;
+				}
+
 				for (const key of OPTIONAL_LEAD_FIELDS) {
 					const value = additionalFields[key];
 					if (value !== undefined && value !== null && `${value}`.trim() !== '') {
