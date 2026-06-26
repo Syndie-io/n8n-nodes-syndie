@@ -12,17 +12,17 @@ events *out* to n8n, this node pushes data *into* Syndie.
 
 ## 1. The one-line summary
 
-The Syndie action node takes an incoming n8n item and **creates a lead in a
-Syndie campaign** by calling the backend's create-lead endpoint, authenticated
-with the same OAuth2 credential the trigger uses.
+The Syndie action node takes an incoming n8n item and **creates a lead in the
+connected Syndie account** by calling the backend's create-lead endpoint,
+authenticated with the same OAuth2 credential the trigger uses.
 
 ```
 [previous node] → [Syndie: Lead → Create] ──POST──► Syndie backend
                         │     (OAuth2-authenticated)        │
                         │                                   ▼
-                        │                          creates an AutomationWebhook-
-                        ▼                          owned Lead under the campaign
-                  emits the created lead JSON
+                        │                          creates a Lead owned by the
+                        ▼                          connected user, tagged with
+                  emits the created lead JSON      the source automationId
 ```
 
 ---
@@ -51,28 +51,35 @@ powers both nodes.
 
 | Parameter | Required | Notes |
 | --------- | -------- | ----- |
-| **Campaign ID** | ✅ | The Syndie campaign the lead is added to. Must belong to the connected account. |
-| **Additional Fields** (collection) | — | `firstName`, `lastName`, `jobTitle` (→ stored as `headline`), `company`, `location`, `linkedinUrl`, `publicIdentifier`, `connectionStatus`. |
-| **Backend URL Override** | — | Full create-lead URL. Leave empty to derive it from the credential's Environment. |
+| **Additional Fields** (collection) | — | `firstName`, `lastName`, `jobTitle` (→ stored as `headline`), `company`, `location`, `linkedinUrl`, `publicIdentifier`, `connectionStatus`. All optional. |
 
-Empty optional fields are dropped from the request body, so only the values you
-actually set are sent.
+There are no other parameters: the endpoint is fixed to the Syndie production API
+(no campaign id, no environment selector, no URL override). Empty optional fields
+are dropped from the request body, so only the values you actually set are sent.
+
+> **Note:** Campaign ID used to be a required parameter. It was removed in 0.2.x —
+> leads are now created against the connected account and associated with the
+> source automation, not a specific campaign.
 
 ---
 
 ## 4. The backend contract
 
-`POST {base}/api/integrations/automation/n8n/actions/create-lead`
+`POST https://api.syndie.io/api/integrations/automation/n8n/actions/create-lead`
 
-The endpoint is **provider-agnostic** — the same route serves `zapier`, `n8n`,
+The base URL is hardcoded to production (`SYNDIE_API_BASE_URL`, defined once in
+`credentials/SyndieOAuth2Api.credentials.ts` and imported by the node). The
+endpoint itself is **provider-agnostic** — the same route serves `zapier`, `n8n`,
 and `make` (the provider is the `:provider` path segment).
 
-**Request body** (mirrors the canonical trigger payload keys so a trigger →
-action round-trip maps 1:1):
+**Request body** (the keys mirror the canonical trigger payload, so a trigger →
+action round-trip maps 1:1). `automationId` is added automatically — it is the id
+of the n8n workflow this node runs in, so created leads can be traced back to
+their source automation:
 
 ```json
 {
-  "campaignId": "60a7b8c9d1e2f3a4b5c6d7e8",
+  "automationId": "42",
   "firstName": "John",
   "lastName": "Doe",
   "jobTitle": "CEO at Example Inc.",
@@ -86,11 +93,10 @@ action round-trip maps 1:1):
 
 **What the backend does** (`automation.service.ts` `createLead`):
 1. Validates the OAuth bearer token → resolves the integration's user.
-2. Confirms the `campaignId` exists **and belongs to that user** (else `404`).
-3. Parses `publicIdentifier` from `linkedinUrl` when not given explicitly.
-4. Creates the `Lead` (denormalized fields; `connectionStatus` defaults to
-   `pending`; empty `steps`/`executions`).
-5. Returns the lead in the canonical `LeadTriggerPayload` shape.
+2. Parses `publicIdentifier` from `linkedinUrl` when not given explicitly.
+3. Creates the `Lead` for that user (denormalized fields; `connectionStatus`
+   defaults to `pending`; empty `steps`/`executions`), tagged with `automationId`.
+4. Returns the lead in the canonical `LeadTriggerPayload` shape.
 
 **Response:**
 ```json
@@ -105,8 +111,7 @@ action round-trip maps 1:1):
   With **Continue On Fail** enabled, a failing item yields `{ "error": "…" }`
   instead of aborting the run.
 - **Errors:** an HTTP error surfaces as a `NodeApiError` carrying the backend's
-  status and response body (e.g. `404 Campaign` when the id is wrong or not
-  owned by the user).
+  status and response body (e.g. `401` when the OAuth token is invalid/expired).
 
 ---
 
@@ -116,8 +121,6 @@ action round-trip maps 1:1):
    column for them (they live on the related `LinkedinProfile`), so they're
    intentionally omitted rather than silently dropped. Supporting them needs a
    profile row or a new Lead column on the backend.
-2. **Campaign ID is free-text.** A `loadOptions` dropdown backed by a
-   "list campaigns" endpoint would be friendlier than pasting an ObjectId.
-3. **Leads are created with empty `steps`.** The `campaign-engine` (separate
+2. **Leads are created with empty `steps`.** The `campaign-engine` (separate
    repo) drives outreach flow; a lead added via this action won't auto-run
    unless that engine picks it up. Confirm the intended lifecycle backend-side.

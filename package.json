@@ -1,6 +1,6 @@
 {
 	"name": "@syndie/n8n-nodes-syndie",
-	"version": "0.2.5",
+	"version": "0.3.0",
 	"description": "n8n node for the Syndie API",
 	"publishConfig": {
 		"access": "public"

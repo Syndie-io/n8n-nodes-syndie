@@ -1,5 +1,13 @@
 import type { ICredentialType, INodeProperties } from 'n8n-workflow';
 
+/**
+ * Base URL of the Syndie production API. This is the single source of truth for
+ * where the credential and both nodes talk to. It is intentionally hardcoded:
+ * the public/verified node only ever connects to production. (Internal beta /
+ * localhost testing is done from a separate, unpublished branch.)
+ */
+export const SYNDIE_API_BASE_URL = 'https://api.syndie.io';
+
 export class SyndieOAuth2Api implements ICredentialType {
 	name = 'syndieOAuth2Api';
 	extends = ['oAuth2Api'];
@@ -16,8 +24,7 @@ export class SyndieOAuth2Api implements ICredentialType {
 	};
 
 	displayName = 'Syndie OAuth2 API';
-	documentationUrl =
-		'https://docs.google.com/document/d/1ebphd5HvkFhFgU7H_yAQDMDWEu6DBzfOzhwVjHlYCxM/edit?tab=t.0#heading=h.ha73d5u5qe0e';
+	documentationUrl = 'https://github.com/Syndie-io/n8n-nodes-syndie#credentials';
 
 	properties: INodeProperties[] = [
 		{
@@ -25,40 +32,6 @@ export class SyndieOAuth2Api implements ICredentialType {
 			name: 'grantType',
 			type: 'hidden',
 			default: 'authorizationCode',
-		},
-		{
-			displayName: 'Environment',
-			name: 'environment',
-			type: 'options',
-			options: [
-				{
-					name: 'Production (api.syndie.io)',
-					value: 'https://api.syndie.io',
-				},
-				{
-					name: 'Beta / Staging',
-					value: 'https://m6b7diz5x8.ap-south-1.awsapprunner.com',
-				},
-				{
-					name: 'Localhost (http://localhost:3000)',
-					value: 'http://localhost:3000',
-				},
-				{
-					name: 'Custom…',
-					value: 'custom',
-				},
-			],
-			default: 'https://m6b7diz5x8.ap-south-1.awsapprunner.com',
-			description: 'Which Syndie API environment to connect to',
-		},
-		{
-			displayName: 'Custom Base URL',
-			name: 'customBaseUrl',
-			type: 'string',
-			default: '',
-			placeholder: 'https://my-host.example.com',
-			description: 'Base URL of the Syndie API (no trailing slash). Used only when Environment is "Custom".',
-			displayOptions: { show: { environment: ['custom'] } },
 		},
 		{
 			displayName: 'Client ID',
@@ -72,16 +45,14 @@ export class SyndieOAuth2Api implements ICredentialType {
 			displayName: 'Authorization URL',
 			name: 'authUrl',
 			type: 'hidden',
-			default:
-				'={{ ($self["environment"] === "custom" ? ($self["customBaseUrl"] || "").replace(/\\/$/, "") : $self["environment"]) + "/api/integrations/automation/n8n/oauth/authorize" }}',
+			default: `${SYNDIE_API_BASE_URL}/api/integrations/automation/n8n/oauth/authorize`,
 			required: true,
 		},
 		{
 			displayName: 'Access Token URL',
 			name: 'accessTokenUrl',
 			type: 'hidden',
-			default:
-				'={{ ($self["environment"] === "custom" ? ($self["customBaseUrl"] || "").replace(/\\/$/, "") : $self["environment"]) + "/api/integrations/automation/n8n/oauth/callback" }}',
+			default: `${SYNDIE_API_BASE_URL}/api/integrations/automation/n8n/oauth/callback`,
 			required: true,
 		},
 		{

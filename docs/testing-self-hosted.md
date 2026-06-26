@@ -101,13 +101,15 @@ appear in the nodes panel.
 pnpm install && pnpm build
 # point n8n at the build (one option):
 #   N8N_CUSTOM_EXTENSIONS=/path/to/n8n-nodes-syndie/dist
-# or `npm link` it into ~/.n8n/custom (see README "Local development")
+# or `npm link` it into ~/.n8n/custom (see CONTRIBUTING.md)
 ```
 
 ## 4. Configure the credential + allowlist the redirect URI
 
-1. Add a **Syndie OAuth2 API** credential. Set **Environment** (Beta or
-   Production) and paste your **Client ID**.
+1. Add a **Syndie OAuth2 API** credential and paste your **Client ID**. The
+   credential always targets the Syndie **production** API (`api.syndie.io`) —
+   there is no environment selector. (To test against Beta/localhost, use the
+   internal unpublished branch, which keeps the environment options.)
 2. **Backend prerequisite:** n8n's OAuth redirect URI is
    `https://<your-n8n-host>/rest/oauth2-credential/callback`. This **exact** URI
    must be allowlisted for the Syndie n8n OAuth client (`N8N_CLIENT_ID`,
@@ -139,12 +141,12 @@ pnpm install && pnpm build
 ## 6. Test the ACTION (n8n → Syndie)
 
 1. Add a **Syndie** node → Resource **Lead**, Operation **Create**.
-2. Set **Campaign ID** to a campaign your account owns, and add a few
-   **Additional Fields** (first name, last name, job title, …).
+2. Add a few **Additional Fields** (first name, last name, job title, …). There
+   is no Campaign ID — leads are created against the connected account.
 3. **Execute** the node.
 4. **Verify:** the node returns
    `{ "message": "Lead created successfully.", "lead": { … } }`, and a new lead
-   appears under that campaign in Syndie.
+   appears in Syndie.
 
 You can wire **Trigger → Syndie (Create Lead)** in one workflow to confirm the
 round-trip — the action's field names match the trigger's output keys.
@@ -158,6 +160,6 @@ round-trip — the action's field names match the trigger's output keys.
 | Trigger never fires; backend delivery fails | `targetUrl` registered as `localhost` | Set `WEBHOOK_URL` to the public domain, restart n8n, re-activate |
 | OAuth "Connect" fails / redirect rejected | Redirect URI not allowlisted backend-side | Allowlist `https://<host>/rest/oauth2-credential/callback` (step 4) |
 | Test event 400 "Missing automationName" | Empty Swagger body | Send the JSON body in step 5.3 (or call via curl) |
-| Action returns `404 Campaign` | Campaign id wrong or not owned by the connected user | Use a campaign id from the same Syndie account |
+| Action returns `401 Unauthorized` | OAuth token expired or credential not connected | Reconnect the **Syndie OAuth2 API** credential |
 | Node not visible after install | Community packages disabled, or build not mounted | Set `N8N_COMMUNITY_PACKAGES_ENABLED=true`; for dev, point `N8N_CUSTOM_EXTENSIONS` at `dist/` |
 | Tunnel URL changed | ngrok-free rotates URLs on restart | Use a static domain (ngrok) or a named Cloudflare Tunnel; then re-activate |
