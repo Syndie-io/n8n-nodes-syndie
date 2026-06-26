@@ -12,9 +12,11 @@ package provides two nodes that share a single credential:
 
 - Secure OAuth2 authentication (Authorization Code + PKCE)
 - Webhook **trigger** for Syndie lead events
-- **Action** to create leads in a Syndie campaign
+- **Action** to create leads in your Syndie account
 - Provider-agnostic backend (the same API powers Zapier / n8n / Make)
 - Usable as AI agent tools (`usableAsTool`)
+
+All nodes connect to the Syndie **production** API (`https://api.syndie.io`).
 
 ---
 
@@ -26,34 +28,26 @@ In n8n: **Settings → Community Nodes → Install** and enter:
 @syndie/n8n-nodes-syndie
 ```
 
-Requires `N8N_COMMUNITY_PACKAGES_ENABLED=true` on self-hosted instances.
+Requires `N8N_COMMUNITY_PACKAGES_ENABLED=true` on self-hosted instances. Once the
+package is accepted into n8n's **Verified Community Nodes** program it installs
+directly from the in-app nodes panel (including on n8n Cloud) without that flag.
 
-### Local development
-
-```bash
-pnpm install
-pnpm build        # production build into dist/
-pnpm dev          # build + watch, links into a local n8n
-pnpm lint         # n8n community-node lint
-```
-
-To load an unpublished build, point n8n at the build output with
-`N8N_CUSTOM_EXTENSIONS=/path/to/n8n-nodes-syndie/dist`, or `npm link` the package
-into your n8n custom directory.
+> **Contributing / building from source?** See
+> [CONTRIBUTING.md](./CONTRIBUTING.md) for the local dev loop and release process,
+> and [ARCHITECTURE.md](./ARCHITECTURE.md) for how the nodes, credential, and
+> Syndie backend fit together.
 
 ---
 
 ## Credentials
 
-Both nodes use the **Syndie OAuth2 API** credential.
+Both nodes use the single **Syndie OAuth2 API** credential.
 
-1. In the credential, set **Environment** — Production (`api.syndie.io`),
-   Beta / Staging, Localhost, or Custom (then fill in **Custom Base URL**).
-2. Enter the **Client ID** provided by Syndie.
-3. Click **Connect** and complete the OAuth2 (PKCE) flow.
+1. Enter the **Client ID** provided by Syndie.
+2. Click **Connect** and complete the OAuth2 (PKCE) flow.
 
-The Authorization and Token URLs are derived automatically from the selected
-Environment, so the credential always talks to the same Syndie API you connect to.
+The Authorization and Token URLs are fixed to the Syndie production API, so there
+is nothing else to configure.
 
 > **Self-hosted note:** the OAuth redirect URI
 > `https://<your-n8n-host>/rest/oauth2-credential/callback` must be allowlisted
@@ -77,10 +71,9 @@ details.
 ### Syndie (Create Lead)
 
 1. Add the **Syndie** node → Resource **Lead**, Operation **Create**.
-2. Set **Campaign ID** (a campaign your Syndie account owns).
-3. Add lead details under **Additional Fields** (name, job title, company,
-   location, LinkedIn URL, …).
-4. Execute — the node creates the lead and returns it.
+2. Add lead details under **Additional Fields** (name, job title, company,
+   location, LinkedIn URL, …). All fields are optional; empty ones are omitted.
+3. Execute — the node creates the lead in your connected account and returns it.
 
 See [docs/n8n-action.md](./docs/n8n-action.md) for the request/response contract.
 

@@ -7,38 +7,12 @@ import type {
 	IDataObject,
 } from 'n8n-workflow';
 import { NodeApiError, NodeOperationError, NodeConnectionTypes } from 'n8n-workflow';
+import { SYNDIE_API_BASE_URL } from '../../credentials/SyndieOAuth2Api.credentials';
 
-/**
- * Resolve the Syndie "create lead" action endpoint.
- * Priority: explicit "Backend URL Override" node param → otherwise derive from
- * the Environment selected on the credential (same single-source-of-truth rule
- * as the trigger, so the action hits the same API as the OAuth flow).
- */
-async function resolveCreateLeadUrl(
-	ctx: IExecuteFunctions,
-	itemIndex: number
-	,
-): Promise<string> {
-	const override = ((ctx.getNodeParameter('backendUrl', itemIndex, '') as string) || '').trim();
-	if (override) {
-		return override;
-	}
-
-	const cred = await ctx.getCredentials('syndieOAuth2Api');
-	const env = (cred?.environment as string) || '';
-	const base = (
-		env === 'custom' ? ((cred?.customBaseUrl as string) || '') : env
-	).replace(/\/$/, '');
-
-	if (!base) {
-		throw new NodeOperationError(
-			ctx.getNode(),
-			'No Syndie API base URL configured. Set the Environment on the credential or fill in the Backend URL Override.',
-		);
-	}
-
-	return `${base}/api/integrations/automation/n8n/actions/create-lead`;
-}
+// The Syndie "create lead" action endpoint. The base URL is hardcoded to
+// production (single source of truth in the credential) — the same API the
+// OAuth flow authenticates against.
+const CREATE_LEAD_URL = `${SYNDIE_API_BASE_URL}/api/integrations/automation/n8n/actions/create-lead`;
 
 // Optional lead fields, mirrored from the backend CreateAutomationLeadDto.
 const OPTIONAL_LEAD_FIELDS = [
@@ -178,16 +152,6 @@ export class Syndie implements INodeType {
 					},
 				],
 			},
-			{
-				displayName: 'Backend URL Override',
-				name: 'backendUrl',
-				type: 'string',
-				default: '',
-				placeholder:
-					'https://api.syndie.io/api/integrations/automation/n8n/actions/create-lead',
-				description:
-					'Optional. Full URL of the Syndie create-lead endpoint. Leave empty to use the Environment selected in the credential.',
-			},
 		] as INodeProperties[],
 	};
 
@@ -220,14 +184,12 @@ export class Syndie implements INodeType {
 					}
 				}
 
-				const url = await resolveCreateLeadUrl(this, i);
-
 				const response = await this.helpers.httpRequestWithAuthentication.call(
 					this,
 					'syndieOAuth2Api',
 					{
 						method: 'POST',
-						url,
+						url: CREATE_LEAD_URL,
 						body,
 						json: true,
 						headers: {

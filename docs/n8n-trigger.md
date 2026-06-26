@@ -43,8 +43,8 @@ Credential type: **`syndieOAuth2Api`** — extends n8n's built-in `oAuth2Api`.
 | ------------------ | --------------------------------------------------------------------- |
 | Grant type         | Authorization Code **with PKCE** (public client, no secret)           |
 | Client ID          | Provided by Syndie, entered by the user                               |
-| Authorization URL  | `https://syndie.io/api/integrations/automation/n8n/oauth/authorize`   |
-| Access Token URL   | `https://syndie.io/api/integrations/automation/n8n/oauth/callback`    |
+| Authorization URL  | `https://api.syndie.io/api/integrations/automation/n8n/oauth/authorize` |
+| Access Token URL   | `https://api.syndie.io/api/integrations/automation/n8n/oauth/callback`  |
 | Token placement    | `Authorization` header                                                |
 | Refresh behavior   | Re-sends credentials on refresh (`includeCredentialsOnRefresh: true`) |
 
@@ -59,9 +59,10 @@ The node implements n8n's webhook lifecycle methods.
 
 ### a) `create` — runs when the workflow is activated / node is test-executed
 - n8n generates a public webhook URL for this node.
-- The node POSTs that URL to the **Backend URL** (default:
-  `https://syndie.io/api/integrations/automation/n8n/hooks/subscribe`),
-  authenticated with the OAuth2 credential.
+- The node POSTs that URL to the fixed production subscribe endpoint
+  `https://api.syndie.io/api/integrations/automation/n8n/hooks/subscribe`
+  (`SUBSCRIBE_URL`, built from `SYNDIE_API_BASE_URL`), authenticated with the
+  OAuth2 credential.
 - **Request body:**
 
   ```json
@@ -92,7 +93,7 @@ The node implements n8n's webhook lifecycle methods.
 
 ### d) `delete` — unregisters the webhook on the backend
 - Reads the `webhookId` that `create` stored in workflow static data.
-- Derives the unsubscribe URL from the Backend URL
+- Derives the unsubscribe URL from the subscribe endpoint
   (`.../n8n/hooks/subscribe` → `.../n8n/hooks/<id>`) and calls `DELETE`.
 - A `404` is treated as success ("already gone"). Any other error is thrown and
   the stored id is **kept**, so a later retry can still unsubscribe.
@@ -191,7 +192,7 @@ objects with `phoneNumber`, `jobtitle`, etc.
 
 > Resolved since earlier drafts: the manifest path now matches the build,
 > `delete` unsubscribes properly (§3d), and the empty `index.js` was removed
-> (n8n loads via the `n8n` manifest). See `dev-branch-modernization.md`.
+> (n8n loads via the `n8n` manifest).
 
 1. **No `event_type` selection** — every workflow gets the `default` stream (§4).
    To support `lead_connected` vs `campaign_completed` as distinct triggers,
