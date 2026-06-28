@@ -44,7 +44,8 @@ directly from the in-app nodes panel (including on n8n Cloud) without that flag.
 Both nodes use the single **Syndie OAuth2 API** credential.
 
 1. Enter the **Client ID** provided by Syndie.
-2. Click **Connect** and complete the OAuth2 (PKCE) flow.
+2. Client ID: Syndie, Client Secret: Syndie
+3. Click **Connect** and complete the OAuth2 (PKCE) flow.
 
 The Authorization and Token URLs are fixed to the Syndie production API, so there
 is nothing else to configure.
