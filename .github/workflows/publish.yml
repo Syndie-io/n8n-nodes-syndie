@@ -76,13 +76,4 @@ jobs:
         # Trusted Publishers → owner Syndie-io, repo n8n-nodes-syndie, workflow
         # publish.yml.)
         run: pnpm run release
-        #
-        # ── Method 2 (Option B — npm Automation Token) — kept, commented out ──
-        # Bootstrap fallback used for the very first publish (before the package
-        # existed). To switch back: comment out the `run:` line above, uncomment the
-        # `run:` block and `env:` block below, and add the NPM_TOKEN repo secret.
-        # run: |
-        #   [ -n "$NPM_TOKEN" ] && npm config set //registry.npmjs.org/:_authToken "$NPM_TOKEN"
-        #   pnpm run release
-        # env:
-        #   NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+       
