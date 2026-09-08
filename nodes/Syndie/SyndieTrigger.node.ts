@@ -25,7 +25,6 @@ export class SyndieTrigger implements INodeType {
 		defaults: {
 			name: 'Syndie',
 		},
-		usableAsTool: true,
 		inputs: [],
 		outputs: [NodeConnectionTypes.Main],
 		credentials: [
