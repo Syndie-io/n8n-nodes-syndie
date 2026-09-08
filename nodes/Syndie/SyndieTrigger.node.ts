@@ -9,15 +9,36 @@ import type {
 } from 'n8n-workflow';
 import { NodeApiError, NodeConnectionTypes } from 'n8n-workflow';
 import {
+	SIGNATURE_HEADER,
+	SUBSCRIPTION_HEADER,
 	SYNDIE_EVENTS,
 	getSyndieBaseUrl,
 	isNotFoundError,
 	readSubscriptions,
 	resolveEventTypes,
+	selectSigningSecret,
 	syndieApiUrl,
 	unwrapSubscribeResponse,
+	verifySyndieSignature,
 	type SyndieSubscription,
 } from './GenericFunctions';
+
+function headerValue(headers: IDataObject, name: string): string | undefined {
+	const value = headers[name] ?? headers[name.toLowerCase()];
+	if (Array.isArray(value)) return typeof value[0] === 'string' ? value[0] : undefined;
+	return typeof value === 'string' ? value : undefined;
+}
+
+/**
+ * Answer 401 ourselves and tell n8n the response is handled, so a refused
+ * delivery neither starts the workflow nor gets n8n's own 200.
+ */
+function refuse(this: IWebhookFunctions, reason: string): IWebhookResponseData {
+	this.getResponseObject()
+		.status(401)
+		.json({ error: `Delivery refused: ${reason}` });
+	return { noWebhookResponse: true };
+}
 
 /**
  * Best-effort removal of subscriptions this activation created before it
@@ -92,16 +113,42 @@ export class SyndieTrigger implements INodeType {
 		],
 	};
 
-	// Deliveries are passed through as received. The signature check lands in
-	// the next commit; this one only changes how subscriptions are made.
+	// Every delivery must carry a signature made with the secret the backend
+	// handed out when this node subscribed. The one exception is a workflow
+	// activated on 0.3.x, which holds a subscription but no secret: it is let
+	// through with a warning until it is re-activated, so an upgrade does not
+	// silently stop it.
 	async webhook(this: IWebhookFunctions): Promise<IWebhookResponseData> {
-		const bodyData = this.getBodyData();
+		const headers = this.getHeaderData() as IDataObject;
+		const subscriptions = readSubscriptions(this.getWorkflowStaticData('node'));
+		const selection = selectSigningSecret(subscriptions, headerValue(headers, SUBSCRIPTION_HEADER));
+
+		if (selection.kind === 'reject') {
+			return refuse.call(this, selection.reason);
+		}
+
+		if (selection.kind === 'verify') {
+			const request = this.getRequestObject() as unknown as { rawBody?: Buffer };
+			const rawBody = request.rawBody ?? JSON.stringify(this.getBodyData());
+			const verified = verifySyndieSignature({
+				secret: selection.secret,
+				rawBody,
+				header: headerValue(headers, SIGNATURE_HEADER),
+			});
+			if (!verified) {
+				return refuse.call(this, 'the signature did not match');
+			}
+		} else {
+			this.logger.warn(
+				'Syndie Trigger: this workflow was activated by an older version and its deliveries are not signed. Re-activate it once to start checking signatures.',
+			);
+		}
 
 		return {
 			workflowData: [
 				[
 					{
-						json: bodyData,
+						json: this.getBodyData(),
 					},
 				],
 			],
