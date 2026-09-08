@@ -1,13 +1,19 @@
 {
 	"name": "@syndie/n8n-nodes-syndie",
 	"version": "0.3.2",
-	"description": "n8n node for the Syndie API",
+	"description": "Syndie for n8n: start workflows when a lead replies, connects, changes status, opts out, is handed to a person or books a meeting, and import or find leads",
 	"publishConfig": {
 		"access": "public"
 	},
 	"packageManager": "pnpm@11.0.8",
 	"keywords": [
-		"n8n-community-node-package"
+		"n8n-community-node-package",
+		"syndie",
+		"linkedin",
+		"outreach",
+		"sales",
+		"leads",
+		"crm"
 	],
 	"license": "MIT",
 	"homepage": "https://syndie.io",
