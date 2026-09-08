@@ -37,6 +37,9 @@ jobs:
       - name: Run build
         run: pnpm run build
 
+      - name: Drive the built nodes with a stubbed n8n
+        run: pnpm test
+
       - name: Check what the package would ship
         # The tarball must carry the built nodes and the docs, and nothing
         # from the build cache. A stray tsbuildinfo once added 88 KB to
