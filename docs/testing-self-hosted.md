@@ -1,165 +1,102 @@
-# Testing the Syndie nodes on a self-hosted n8n
+# Testing the Syndie nodes end to end
 
-This guide walks through running the Syndie **Trigger** and **Action** nodes
-end-to-end against a Syndie backend (Beta/Staging or Production) from a
-self-hosted n8n instance.
+Two layers of testing exist. The first needs nothing but this repository; the
+second needs a publicly reachable n8n and a Syndie backend.
 
-## Why self-hosting is needed
+## 1. Without n8n: the self-test
 
-The Syndie trigger is a **reverse webhook**: on activation it registers n8n's
-webhook URL with the Syndie backend, and the backend (hosted on AWS) later POSTs
-events to that URL. For that to work, **n8n must be reachable from the public
-internet** — a laptop on `localhost:5678` is not. Two ways to get a public URL:
-
-| Route | Effort | Best for |
-| ----- | ------ | -------- |
-| **A. VPS + Docker** (public domain + HTTPS) | ~30–60 min | A stable setup you configure once; production-like |
-| **B. Tunnel** (Cloudflare Tunnel / ngrok) | ~10 min | A quick one-off test from your local machine |
-
-Either way, the single most important setting is **`WEBHOOK_URL`** — without it,
-n8n advertises `http://localhost:5678/...` to the backend even through a tunnel,
-and delivery fails.
-
----
-
-## Prerequisites
-
-- A Syndie **Client ID** for the environment you're testing (Beta or Production).
-- The ability to **allowlist an OAuth redirect URI** on the Syndie backend (see
-  step 4) — this is required for the OAuth "Connect" to succeed.
-- Docker (Route A) or a Cloudflare/ngrok account (Route B).
-
----
-
-## Route A — VPS + Docker (recommended)
-
-### 1. Provision and point a domain
-- Create a small VPS (DigitalOcean / Hetzner / Railway). 1 vCPU / 1–2 GB is enough.
-- Point a subdomain at it, e.g. `n8n.yourdomain.com` (A record → server IP).
-
-### 2. Run n8n with the public URL baked in
-`docker-compose.yml`:
-
-```yaml
-services:
-  n8n:
-    image: n8nio/n8n:latest
-    restart: unless-stopped
-    environment:
-      - N8N_HOST=n8n.yourdomain.com
-      - N8N_PROTOCOL=https
-      - WEBHOOK_URL=https://n8n.yourdomain.com/        # critical
-      - N8N_PORT=5678
-      - N8N_COMMUNITY_PACKAGES_ENABLED=true            # allow installing this node
-    ports: ["5678:5678"]
-    volumes: ["n8n_data:/home/node/.n8n"]
-volumes: { n8n_data: {} }
-```
-
-Put TLS in front with **Caddy** (auto Let's Encrypt) reverse-proxying
-`n8n.yourdomain.com → localhost:5678`, or use a platform that terminates HTTPS
-for you (Railway/Render — then set `WEBHOOK_URL` to that https URL).
-
-Go to step 3.
-
----
-
-## Route B — Tunnel + local n8n (quick test)
-
-Cloudflare Tunnel is steadier than ngrok-free (stable URL, no interstitial), but
-either works. Using ngrok as the example:
-
-### 1. Start the tunnel
 ```bash
-# claim a free static domain in the ngrok dashboard first, so the URL is stable
-ngrok http --domain=YOUR-STATIC.ngrok-free.app 5678
+pnpm install && pnpm build && pnpm test
 ```
 
-### 2. Restart n8n with the public URL (PowerShell, same window before launching)
-```powershell
-$env:N8N_HOST="YOUR-STATIC.ngrok-free.app"
-$env:N8N_PROTOCOL="https"
-$env:WEBHOOK_URL="https://YOUR-STATIC.ngrok-free.app/"
-$env:N8N_COMMUNITY_PACKAGES_ENABLED="true"
-n8n start
-```
-(macOS/Linux: `export N8N_HOST=...` etc.) After boot, the n8n log should show the
-editor/webhook URL as your public domain, **not** `localhost`. If it still says
-localhost, `WEBHOOK_URL` didn't take — fix that before continuing.
+`scripts/self-test.mjs` loads `dist/` the way n8n would and drives both nodes
+with a stubbed n8n context: activation and deactivation, every delivery outcome
+(signed, tampered, stale, unknown subscription, 0.3.x pass-through), the action's
+requests, the credential's defaults. 56 checks, about a second, no network. CI
+runs it after every build.
 
----
+## 2. With n8n: a real round trip
 
-## 3. Install the Syndie node
+### Why n8n must be public
 
-**Published (recommended):** n8n → **Settings → Community Nodes → Install** →
-enter `@syndie/n8n-nodes-syndie` → Install. Both **Syndie Trigger** and **Syndie**
-appear in the nodes panel.
+The trigger is a reverse webhook: on activation it registers n8n's webhook
+address with the backend, and the backend POSTs events to it. `localhost:5678`
+cannot receive those, and the backend refuses to register anything but a public
+**https** address. The setting that matters is `WEBHOOK_URL`; without it n8n
+advertises `http://localhost:5678/…` even through a tunnel.
 
-**Local/unpublished (dev):** build and mount the package:
+### Run n8n with the unpublished build
+
 ```bash
-# in this repo
-pnpm install && pnpm build
-# point n8n at the build (one option):
-#   N8N_CUSTOM_EXTENSIONS=/path/to/n8n-nodes-syndie/dist
-# or `npm link` it into ~/.n8n/custom (see CONTRIBUTING.md)
+pnpm build
+docker run --rm -p 5678:5678 \
+  -e N8N_HOST=YOUR-HOST -e N8N_PROTOCOL=https \
+  -e WEBHOOK_URL=https://YOUR-HOST/ -e N8N_EDITOR_BASE_URL=https://YOUR-HOST/ \
+  -e N8N_CUSTOM_EXTENSIONS=/data/syndie \
+  -v "$PWD/dist:/data/syndie" -v n8n_data:/home/node/.n8n \
+  docker.n8n.io/n8nio/n8n
 ```
 
-## 4. Configure the credential + allowlist the redirect URI
+Expose port 5678 with a tunnel (`ngrok http --domain=YOUR-HOST 5678`, or a
+named Cloudflare Tunnel) or run the container on a host with a real domain and
+TLS in front. The n8n log must print your public address, not localhost.
 
-1. Add a **Syndie OAuth2 API** credential and paste your **Client ID**. The
-   credential always targets the Syndie **production** API (`api.syndie.io`) —
-   there is no environment selector. (To test against Beta/localhost, use the
-   internal unpublished branch, which keeps the environment options.)
-2. **Backend prerequisite:** n8n's OAuth redirect URI is
-   `https://<your-n8n-host>/rest/oauth2-credential/callback`. This **exact** URI
-   must be allowlisted for the Syndie n8n OAuth client (`N8N_CLIENT_ID`,
-   handled by the backend's `automation-oauth.controller.ts`). With a stable
-   domain you do this once.
-3. Click **Connect** and complete the PKCE flow. Success = a green "Connected".
+For the published package instead: **Settings → Community Nodes → Install →**
+`@syndie/n8n-nodes-syndie` (self-hosted needs
+`N8N_COMMUNITY_PACKAGES_ENABLED=true`).
 
----
+### The credential
 
-## 5. Test the TRIGGER (Syndie → n8n)
+Add a **Syndie OAuth2 API** credential:
 
-1. Add a **Syndie Trigger** node, select the credential, **Activate** the
-   workflow. Activation registers the production webhook URL
-   (`https://<host>/webhook/<id>/webhook`) with the backend.
-2. Confirm registration: the backend should now have an `AutomationWebhook` row
-   whose `targetUrl` is your **https** domain (check via the backend
-   `GET /n8n/hooks/recent`, or the DB).
-3. Fire a test event from the backend's Swagger
-   (`POST /api/integrations/automation/n8n/trigger`) with a JSON body:
-   ```json
-   { "automation_name": "<your workflow name>", "clerkUserId": "<your user id>" }
+- **Client ID:** the value of the backend's `N8N_CLIENT_ID` for the environment
+  you test against (ask the backend owner; the connector answers `503` while it
+  is unset).
+- **Client Secret:** anything.
+- **API Base URL:** the backend you test against, e.g. `https://dev-api.syndie.io`.
+  Leave the default for production.
+
+Click **Connect**. n8n's redirect address
+(`https://YOUR-HOST/rest/oauth2-credential/callback`) is accepted for any https
+host, so nothing has to be allow-listed. A workspace outside the platform tenant
+is refused with `AUTOMATION_NOT_AVAILABLE_FOR_WORKSPACE` — that is expected.
+
+### The trigger
+
+1. Add **Syndie Trigger**, pick two events (say Lead Replied and Status Changed),
+   **Activate**. The backend now holds two `AutomationWebhook` rows for your
+   workspace, each with a `signingSecret`.
+2. In Syndie, change a lead's status. Within a few seconds the **Executions**
+   tab shows a run whose item is the `lead.status_changed` payload
+   ([shape](./n8n-trigger.md#4-events-and-payload)).
+3. Prove the check: send a fake to the webhook address and expect `401`:
+   ```bash
+   curl -i -X POST https://YOUR-HOST/webhook/<path> -H 'Content-Type: application/json' -d '{"id":"fake"}'
    ```
-4. **Verify:** the n8n **Executions** tab shows a new run whose first item is the
-   sample-lead JSON.
+   Same with a stale stamp or an unknown `X-Webhook-Subscription-Id`.
+4. **Deactivate**: the backend rows switch to `isActive: false`.
+5. Upgrade path: activate a workflow with the 0.3.2 package, then swap in this
+   build and send an event — it is accepted with a warning in the n8n log;
+   re-activate and the warning stops.
 
-> Use the **production** `/webhook/` URL (workflow Active) — not the editor's
-> `/webhook-test/` URL, which only fires while you're actively listening.
+### The action
 
-## 6. Test the ACTION (n8n → Syndie)
-
-1. Add a **Syndie** node → Resource **Lead**, Operation **Create**.
-2. Add a few **Additional Fields** (first name, last name, job title, …). There
-   is no Campaign ID — leads are created against the connected account.
-3. **Execute** the node.
-4. **Verify:** the node returns
-   `{ "message": "Lead created successfully.", "lead": { … } }`, and a new lead
-   appears in Syndie.
-
-You can wire **Trigger → Syndie (Create Lead)** in one workflow to confirm the
-round-trip — the action's field names match the trigger's output keys.
-
----
+1. **Syndie → Lead → Import** with a LinkedIn URL and a name. Execute twice:
+   the first answer has `created: true`, the second `created: false` with the
+   same `lead.id`, and Syndie's contact list shows one contact.
+2. **Syndie → Lead → Find** with an email nobody has: `{ found: false, lead: null }`
+   as a normal item.
+3. Turn **Continue On Fail** on, set the credential's API Base URL to a wrong
+   https host, execute: the item becomes `{ error: … }` and the run finishes.
 
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |
-| ------- | ------------ | --- |
-| Trigger never fires; backend delivery fails | `targetUrl` registered as `localhost` | Set `WEBHOOK_URL` to the public domain, restart n8n, re-activate |
-| OAuth "Connect" fails / redirect rejected | Redirect URI not allowlisted backend-side | Allowlist `https://<host>/rest/oauth2-credential/callback` (step 4) |
-| Test event 400 "Missing automationName" | Empty Swagger body | Send the JSON body in step 5.3 (or call via curl) |
-| Action returns `401 Unauthorized` | OAuth token expired or credential not connected | Reconnect the **Syndie OAuth2 API** credential |
-| Node not visible after install | Community packages disabled, or build not mounted | Set `N8N_COMMUNITY_PACKAGES_ENABLED=true`; for dev, point `N8N_CUSTOM_EXTENSIONS` at `dist/` |
-| Tunnel URL changed | ngrok-free rotates URLs on restart | Use a static domain (ngrok) or a named Cloudflare Tunnel; then re-activate |
+|---|---|---|
+| Activation fails "must start with https://" | API Base URL is http | use https |
+| Activation fails `AUTOMATION_TARGET_URL_INVALID` | n8n advertises http/localhost | set `WEBHOOK_URL`, restart, re-activate |
+| Connect answers 503 | `N8N_CLIENT_ID` unset on that backend | set it and redeploy |
+| Connect answers 403 | workspace not eligible | use a platform workspace |
+| Nothing arrives | no event happened, or the backend's worker role is off | change a lead's status; check the backend's `automation.delivery.*` logs |
+| Every delivery is 401 | stale subscriptions after a secret change | deactivate and activate |
+| Node not visible | `N8N_CUSTOM_EXTENSIONS` not pointing at `dist/`, or community packages disabled | fix the mount or the flag |

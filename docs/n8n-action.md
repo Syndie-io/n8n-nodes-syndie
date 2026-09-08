@@ -1,126 +1,87 @@
-# Syndie n8n Action — How It Works
+# Syndie action — how it works
 
-A plain-English reference for the **Syndie** action node (`Syndie.node.ts`) — the
-counterpart to the [trigger](./n8n-trigger.md). Where the trigger pushes Syndie
-events *out* to n8n, this node pushes data *into* Syndie.
-
-> Source files:
-> - Node: `nodes/Syndie/Syndie.node.ts`
-> - Credential: `credentials/SyndieOAuth2Api.credentials.ts` (shared with the trigger)
+The reference for `nodes/Syndie/Syndie.node.ts`: Resource **Lead**, operations
+**Import** and **Find**. Both use the same credential as the
+[trigger](./n8n-trigger.md) and answer in the same `lead` shape the trigger
+delivers, so one set of field mappings serves both.
 
 ---
 
-## 1. The one-line summary
+## 1. Import (operation value `create`)
 
-The Syndie action node takes an incoming n8n item and **creates a lead in the
-connected Syndie account** by calling the backend's create-lead endpoint,
-authenticated with the same OAuth2 credential the trigger uses.
+Adds a person as a contact in the connected workspace, **without duplicates**:
+the backend matches by LinkedIn public identifier first, then by email, inside
+the workspace, and returns the existing contact when there is one.
 
-```
-[previous node] → [Syndie: Lead → Create] ──POST──► Syndie backend
-                        │     (OAuth2-authenticated)        │
-                        │                                   ▼
-                        │                          creates a Lead owned by the
-                        ▼                          connected user, tagged with
-                  emits the created lead JSON      the source automationId
-```
+| Parameter | Notes |
+|---|---|
+| **LinkedIn URL** | Full address or just the public identifier after `/in/`. Any spelling — with or without `https`, `www.`, a trailing slash, mixed case. |
+| **Email** | Matched case-insensitively. |
+| Additional Fields | Company · First Name · Job Title (stored as the headline) · Last Name · Location · Phone · Public Identifier |
 
----
+At least one of LinkedIn URL, Public Identifier or Email is required; otherwise
+the item fails before any request with "Give a LinkedIn URL, a public identifier
+or an email so the lead can be matched".
 
-## 2. What it authenticates with
-
-Credential type: **`syndieOAuth2Api`** — identical to the trigger
-(Authorization Code + PKCE, token in the `Authorization` header). One credential
-powers both nodes.
-
----
-
-## 3. Node shape
-
-| Field | Value |
-| ----- | ----- |
-| Display name | **Syndie** |
-| Internal name | `syndie` |
-| Group | `transform` |
-| Inputs / Outputs | Main / Main |
-| Resource | **Lead** |
-| Operation | **Create** |
-| Usable as AI tool | yes (`usableAsTool: true`) |
-
-### Parameters
-
-| Parameter | Required | Notes |
-| --------- | -------- | ----- |
-| **Additional Fields** (collection) | — | `firstName`, `lastName`, `jobTitle` (→ stored as `headline`), `company`, `location`, `linkedinUrl`, `publicIdentifier`, `connectionStatus`. All optional. |
-
-There are no other parameters: the endpoint is fixed to the Syndie production API
-(no campaign id, no environment selector, no URL override). Empty optional fields
-are dropped from the request body, so only the values you actually set are sent.
-
-> **Note:** Campaign ID used to be a required parameter. It was removed in 0.2.x —
-> leads are now created against the connected account and associated with the
-> source automation, not a specific campaign.
-
----
-
-## 4. The backend contract
-
-`POST https://api.syndie.io/api/integrations/automation/n8n/actions/create-lead`
-
-The base URL is hardcoded to production (`SYNDIE_API_BASE_URL`, defined once in
-`credentials/SyndieOAuth2Api.credentials.ts` and imported by the node). The
-endpoint itself is **provider-agnostic** — the same route serves `zapier`, `n8n`,
-and `make` (the provider is the `:provider` path segment).
-
-**Request body** (the keys mirror the canonical trigger payload, so a trigger →
-action round-trip maps 1:1). `automationId` is added automatically — it is the id
-of the n8n workflow this node runs in, so created leads can be traced back to
-their source automation:
+**Request:** `POST <base>/api/integrations/automation/n8n/actions/import-lead`
 
 ```json
-{
-  "automationId": "42",
-  "firstName": "John",
-  "lastName": "Doe",
-  "jobTitle": "CEO at Example Inc.",
-  "company": "Example Inc.",
-  "location": "San Francisco, CA",
-  "linkedinUrl": "https://linkedin.com/in/john-doe",
-  "publicIdentifier": "john-doe",
-  "connectionStatus": "pending"
-}
+{ "linkedinUrl": "https://www.linkedin.com/in/sarah-green", "email": "sarah@kestrel.io",
+  "firstName": "Sarah", "lastName": "Green", "jobTitle": "Head of Talent",
+  "company": "Kestrel", "location": "Berlin, Germany", "phone": "+49 30 1234567" }
 ```
 
-**What the backend does** (`automation.service.ts` `createLead`):
-1. Validates the OAuth bearer token → resolves the integration's user.
-2. Parses `publicIdentifier` from `linkedinUrl` when not given explicitly.
-3. Creates the `Lead` for that user (denormalized fields; `connectionStatus`
-   defaults to `pending`; empty `steps`/`executions`), tagged with `automationId`.
-4. Returns the lead in the canonical `LeadTriggerPayload` shape.
+Only filled-in fields are sent. **Response** (`200`):
 
-**Response:**
 ```json
-{ "message": "Lead created successfully.", "lead": { /* canonical payload */ } }
+{ "created": true,
+  "lead": { "id": "…", "firstName": "Sarah", "lastName": "Green", "headline": "Head of Talent",
+            "company": "Kestrel", "location": "Berlin, Germany", "email": "sarah@kestrel.io",
+            "phone": "+49 30 1234567", "publicIdentifier": "sarah-green",
+            "linkedinUrl": "https://www.linkedin.com/in/sarah-green",
+            "connectionStatus": "not_connected", "campaignId": null } }
 ```
 
+`created: false` means the person was already there and `lead` is that contact.
+A new contact carries no campaign and starts as `not_connected`.
+
+The route is also reachable as `…/actions/create-lead`, the name 0.3.x used.
+
+## 2. Find (operation value `find`)
+
+| Parameter | Notes |
+|---|---|
+| **LinkedIn URL** | Address or public identifier. |
+| **Email** | — |
+
+One of the two is required. **Request:**
+`GET <base>/api/integrations/automation/n8n/actions/find-lead?linkedin=<…>&email=<…>`
+
+**Response** (`200`): `{ "found": true, "lead": { … } }` or
+`{ "found": false, "lead": null }`. Not found is a normal item, not an error, so
+an IF node can branch on `found` — pair Find with Import for "find or create".
+
 ---
 
-## 5. Behavior notes
+## 3. Errors
 
-- **Per-item:** the node loops over every input item and creates one lead each.
-  With **Continue On Fail** enabled, a failing item yields `{ "error": "…" }`
-  instead of aborting the run.
-- **Errors:** an HTTP error surfaces as a `NodeApiError` carrying the backend's
-  status and response body (e.g. `401` when the OAuth token is invalid/expired).
+Errors come in the backend's envelope; the node surfaces the message and the
+item index. Switch on `code` if you handle them in an expression.
+
+| Status | `code` | Meaning |
+|---|---|---|
+| 400 | `LEAD_IDENTITY_REQUIRED` | nothing to match on (the node normally catches this first) |
+| 401 | `AUTOMATION_ACCESS_TOKEN_INVALID` / `_EXPIRED` | reconnect the credential (n8n refreshes automatically first) |
+| 403 | `AUTOMATION_NOT_AVAILABLE_FOR_WORKSPACE` | the workspace is not eligible for this connector |
+
+With **Continue On Fail** a failing item becomes `{ "error": "…" }` and the run
+goes on; without it the run stops with a `NodeApiError` naming the item.
 
 ---
 
-## 6. Known gaps / cleanup candidates
+## 4. Compatibility with 0.3.x workflows
 
-1. **`email` / `phoneNumber` are not sent.** The Syndie `Lead` table has no
-   column for them (they live on the related `LinkedinProfile`), so they're
-   intentionally omitted rather than silently dropped. Supporting them needs a
-   profile row or a new Lead column on the backend.
-2. **Leads are created with empty `steps`.** The `campaign-engine` (separate
-   repo) drives outreach flow; a lead added via this action won't auto-run
-   unless that engine picks it up. Confirm the intended lifecycle backend-side.
+- The Import operation keeps the stored value `create`; only the label changed.
+- A LinkedIn URL saved under *Additional Fields* by 0.3.x is still read.
+- The old *Connection Status* field is ignored; `automationId` is no longer sent
+  (the backend never read it).
