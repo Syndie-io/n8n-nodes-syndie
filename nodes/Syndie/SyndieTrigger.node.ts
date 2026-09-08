@@ -1,17 +1,47 @@
 import type {
+	IDataObject,
+	IHookFunctions,
 	INodeType,
 	INodeTypeDescription,
 	IWebhookFunctions,
 	IWebhookResponseData,
-	IHookFunctions,
+	JsonObject,
 } from 'n8n-workflow';
-import { NodeApiError, NodeOperationError, NodeConnectionTypes } from 'n8n-workflow';
-import { SYNDIE_API_BASE_URL } from '../../credentials/SyndieOAuth2Api.credentials';
+import { NodeApiError, NodeConnectionTypes } from 'n8n-workflow';
+import {
+	SYNDIE_EVENTS,
+	getSyndieBaseUrl,
+	isNotFoundError,
+	readSubscriptions,
+	resolveEventTypes,
+	syndieApiUrl,
+	unwrapSubscribeResponse,
+	type SyndieSubscription,
+} from './GenericFunctions';
 
-// The Syndie webhook subscribe endpoint. The base URL is hardcoded to production
-// (single source of truth in the credential) so the webhook calls hit the same
-// API the OAuth flow authenticates against.
-const SUBSCRIBE_URL = `${SYNDIE_API_BASE_URL}/api/integrations/automation/n8n/hooks/subscribe`;
+/**
+ * Best-effort removal of subscriptions this activation created before it
+ * failed part-way. Errors are swallowed on purpose: the activation is
+ * already failing with the real error, and the backend deduplicates a
+ * re-subscribe of the same URL and event, so a leftover costs nothing.
+ */
+async function removeSubscriptions(
+	this: IHookFunctions,
+	baseUrl: string,
+	subscriptions: SyndieSubscription[],
+): Promise<void> {
+	for (const subscription of subscriptions) {
+		try {
+			await this.helpers.httpRequestWithAuthentication.call(this, 'syndieOAuth2Api', {
+				method: 'DELETE',
+				url: syndieApiUrl(baseUrl, `/hooks/${subscription.webhookId}`),
+				json: true,
+			});
+		} catch {
+			// The activation is already failing; a leftover row is harmless.
+		}
+	}
+}
 
 export class SyndieTrigger implements INodeType {
 	description: INodeTypeDescription = {
@@ -20,10 +50,10 @@ export class SyndieTrigger implements INodeType {
 		icon: { light: 'file:SyndieLogo.svg', dark: 'file:SyndieLogo.dark.svg' },
 		group: ['trigger'],
 		version: 1,
-		subtitle: 'Syndie webhook trigger',
-		description: 'Syndie webhook trigger with OAuth integration',
+		subtitle: '={{ ($parameter["events"] || []).length === 6 ? "All events" : ($parameter["events"] || []).length + " event(s)" }}',
+		description: 'Starts the workflow when something happens to a lead in Syndie',
 		defaults: {
-			name: 'Syndie',
+			name: 'Syndie Trigger',
 		},
 		inputs: [],
 		outputs: [NodeConnectionTypes.Main],
@@ -41,12 +71,29 @@ export class SyndieTrigger implements INodeType {
 				path: 'webhook',
 			},
 		],
-		// No user-facing parameters: the trigger registers n8n's own webhook URL
-		// with the Syndie production API using the OAuth2 credential.
-		properties: [],
+		properties: [
+			{
+				displayName: 'Events',
+				name: 'events',
+				type: 'multiOptions',
+				required: true,
+				default: [
+					'lead.connection_accepted',
+					'conversation.handed_off',
+					'lead.opted_out',
+					'lead.replied',
+					'meeting.booked',
+					'lead.status_changed',
+				],
+				options: SYNDIE_EVENTS,
+				description:
+					'Which events start this workflow. Leaving all of them selected receives every event on one subscription.',
+			},
+		],
 	};
 
-	// This method is called when the webhook receives data
+	// Deliveries are passed through as received. The signature check lands in
+	// the next commit; this one only changes how subscriptions are made.
 	async webhook(this: IWebhookFunctions): Promise<IWebhookResponseData> {
 		const bodyData = this.getBodyData();
 
@@ -61,93 +108,98 @@ export class SyndieTrigger implements INodeType {
 		};
 	}
 
-	// Webhook lifecycle methods as required by n8n
 	webhookMethods = {
 		default: {
-			// Always (re)create: the backend deduplicates identical subscriptions
-			// (see docs/n8n-trigger.md §5.4), so we don't track existence here.
+			// Always (re)create: the backend returns the existing subscription and
+			// its secret for the same URL and event, so there is nothing to look up.
 			checkExists: async function (this: IHookFunctions): Promise<boolean> {
 				return false;
 			},
-			// Create/register the webhook
+
+			// One subscription per chosen event, or a single "default" one when
+			// every event is chosen. What comes back (id and signing secret) is
+			// remembered so deliveries can be checked and deactivation can clean up.
 			create: async function (this: IHookFunctions): Promise<boolean> {
-				const webhookUrl = this.getNodeWebhookUrl('default');
+				const webhookUrl = this.getNodeWebhookUrl('default') as string;
 				const workflow = this.getWorkflow();
+				const baseUrl = await getSyndieBaseUrl.call(this);
+				const selected = this.getNodeParameter('events', []) as string[];
+				const eventTypes = resolveEventTypes.call(this, selected);
+				const staticData = this.getWorkflowStaticData('node');
+				const created: SyndieSubscription[] = [];
 
-				try {
-					const response = await this.helpers.httpRequestWithAuthentication.call(
-						this,
-						'syndieOAuth2Api',
-						{
-							method: 'POST',
-							url: SUBSCRIBE_URL,
-							body: {
-								automation_name: workflow.name || `n8n-workflow-${workflow.id}`,
-								automation_id: workflow.id,
-								event_type: null,
-								target_url: webhookUrl,
+				for (const eventType of eventTypes) {
+					try {
+						const response = await this.helpers.httpRequestWithAuthentication.call(
+							this,
+							'syndieOAuth2Api',
+							{
+								method: 'POST',
+								url: syndieApiUrl(baseUrl, '/hooks/subscribe'),
+								body: {
+									automation_name: workflow.name || `n8n-workflow-${workflow.id}`,
+									automation_id: workflow.id,
+									event_type: eventType,
+									target_url: webhookUrl,
+								},
+								json: true,
 							},
-							json: true,
-							headers: {
-								'Content-Type': 'application/json',
-							},
-						},
-					);
-
-					// Persist the backend webhook id so delete() can unsubscribe later.
-					// /hooks/subscribe returns the AutomationWebhook row (see docs/n8n-trigger.md §4).
-					const webhookId = response?.id ?? response?.data?.id;
-					if (webhookId !== undefined && webhookId !== null) {
-						this.getWorkflowStaticData('node').webhookId = webhookId;
-					}
-					return true;
-				} catch (error) {
-					if (error.response) {
-						throw new NodeApiError(this.getNode(), error, {
-							message: `Failed to register webhook: ${error.response.status} ${error.response.statusText}`,
-							description: error.response.data ? JSON.stringify(error.response.data) : undefined,
+						);
+						const { id, signingSecret } = unwrapSubscribeResponse(response);
+						created.push({ webhookId: id, event: eventType, targetUrl: webhookUrl, signingSecret });
+					} catch (error) {
+						await removeSubscriptions.call(this, baseUrl, created);
+						throw new NodeApiError(this.getNode(), error as JsonObject, {
+							message: `Could not subscribe to "${eventType}" events`,
+							description:
+								'Check that the credential is connected and that this n8n is reachable over https.',
 						});
 					}
-					throw new NodeOperationError(this.getNode(), 'Failed to register webhook', {
-						description: error.message,
-					});
 				}
+
+				staticData.subscriptions = created as unknown as IDataObject[];
+				delete staticData.webhookId;
+				return true;
 			},
 
-			// Unregister the webhook on the backend via DELETE /n8n/hooks/:webhookId
-			// (flips isActive: false — see docs/n8n-trigger.md §5.3).
+			// Remove every subscription this node holds. "Already gone" counts as
+			// removed. Anything else is kept on record and reported once, so the
+			// next deactivation can try again.
 			delete: async function (this: IHookFunctions): Promise<boolean> {
 				const staticData = this.getWorkflowStaticData('node');
-				const webhookId = staticData.webhookId;
-
-				// No stored id (e.g. activated before this version, or subscribe returned
-				// no id) → nothing we can unsubscribe.
-				if (webhookId === undefined || webhookId === null) {
+				const subscriptions = readSubscriptions(staticData);
+				if (subscriptions.length === 0) {
 					return true;
 				}
 
-				// Derive .../n8n/hooks/subscribe → .../n8n/hooks/<id>
-				const unsubscribeUrl = SUBSCRIBE_URL.replace(/\/subscribe\/?$/, `/${webhookId}`);
+				const baseUrl = await getSyndieBaseUrl.call(this);
+				const kept: SyndieSubscription[] = [];
+				let firstError: unknown = undefined;
 
-				try {
-					await this.helpers.httpRequestWithAuthentication.call(this, 'syndieOAuth2Api', {
-						method: 'DELETE',
-						url: unsubscribeUrl,
-						json: true,
-					});
-				} catch (error) {
-					// Treat "already gone" (404) as success; surface anything else so a
-					// genuine failure is visible and the id is kept for a retry.
-					if (!error.response || error.response.status !== 404) {
-						throw new NodeApiError(this.getNode(), error, {
-							message: 'Failed to unregister webhook',
-							description: error.response?.data
-								? JSON.stringify(error.response.data)
-								: error.message,
+				for (const subscription of subscriptions) {
+					try {
+						await this.helpers.httpRequestWithAuthentication.call(this, 'syndieOAuth2Api', {
+							method: 'DELETE',
+							url: syndieApiUrl(baseUrl, `/hooks/${subscription.webhookId}`),
+							json: true,
 						});
+					} catch (error) {
+						if (isNotFoundError(error)) continue;
+						kept.push(subscription);
+						if (firstError === undefined) firstError = error;
 					}
 				}
 
+				if (kept.length > 0) {
+					staticData.subscriptions = kept as unknown as IDataObject[];
+					delete staticData.webhookId;
+					throw new NodeApiError(this.getNode(), firstError as JsonObject, {
+						message: `Could not remove ${kept.length} of ${subscriptions.length} subscription(s)`,
+						description: 'Deactivate the workflow again to retry.',
+					});
+				}
+
+				delete staticData.subscriptions;
 				delete staticData.webhookId;
 				return true;
 			},
