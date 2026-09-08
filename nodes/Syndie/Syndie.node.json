@@ -2,7 +2,8 @@
 	"node": "@syndie/n8n-nodes-syndie.syndie",
 	"nodeVersion": "1.0",
 	"codexVersion": "1.0",
-	"categories": ["Development"],
+	"categories": ["Sales"],
+	"alias": ["LinkedIn", "Outreach", "Lead", "CRM"],
 	"resources": {
 		"credentialDocumentation": [
 			{
@@ -11,7 +12,7 @@
 		],
 		"primaryDocumentation": [
 			{
-				"url": "https://github.com/Syndie-io/n8n-nodes-syndie?tab=readme-ov-file"
+				"url": "https://github.com/Syndie-io/n8n-nodes-syndie/blob/master/docs/n8n-action.md"
 			}
 		]
 	}
