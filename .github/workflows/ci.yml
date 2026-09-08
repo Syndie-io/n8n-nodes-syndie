@@ -36,3 +36,15 @@ jobs:
 
       - name: Run build
         run: pnpm run build
+
+      - name: Check what the package would ship
+        # The tarball must carry the built nodes and the docs, and nothing
+        # from the build cache. A stray tsbuildinfo once added 88 KB to
+        # every install for no reason.
+        run: |
+          npm pack --dry-run --ignore-scripts 2>&1 | tee pack.log
+          if grep -qE 'tsbuildinfo|dist/package\.json' pack.log; then
+            echo 'The package would ship build artefacts it should not.'
+            exit 1
+          fi
+          grep -q 'docs/' pack.log || { echo 'The docs folder is missing from the package.'; exit 1; }
