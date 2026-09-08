@@ -5,9 +5,8 @@ import type {
 	INodeTypeDescription,
 	IWebhookFunctions,
 	IWebhookResponseData,
-	JsonObject,
 } from 'n8n-workflow';
-import { NodeApiError, NodeConnectionTypes } from 'n8n-workflow';
+import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 import {
 	SIGNATURE_HEADER,
 	SUBSCRIPTION_HEADER,
@@ -41,16 +40,17 @@ function refuse(this: IWebhookFunctions, reason: string): IWebhookResponseData {
 }
 
 /**
- * Best-effort removal of subscriptions this activation created before it
- * failed part-way. Errors are swallowed on purpose: the activation is
- * already failing with the real error, and the backend deduplicates a
- * re-subscribe of the same URL and event, so a leftover costs nothing.
+ * Removes subscriptions without raising: used to roll back a part-finished
+ * activation, and to clear leftovers a previous deactivation could not remove.
+ * Returns the ones still on the backend, so they stay on record and the next
+ * attempt tries again rather than stranding them.
  */
 async function removeSubscriptions(
 	this: IHookFunctions,
 	baseUrl: string,
 	subscriptions: SyndieSubscription[],
-): Promise<void> {
+): Promise<SyndieSubscription[]> {
+	const remaining: SyndieSubscription[] = [];
 	for (const subscription of subscriptions) {
 		try {
 			await this.helpers.httpRequestWithAuthentication.call(this, 'syndieOAuth2Api', {
@@ -58,10 +58,11 @@ async function removeSubscriptions(
 				url: syndieApiUrl(baseUrl, `/hooks/${subscription.webhookId}`),
 				json: true,
 			});
-		} catch {
-			// The activation is already failing; a leftover row is harmless.
+		} catch (error) {
+			if (!isNotFoundError(error)) remaining.push(subscription);
 		}
 	}
+	return remaining;
 }
 
 export class SyndieTrigger implements INodeType {
@@ -144,14 +145,23 @@ export class SyndieTrigger implements INodeType {
 			);
 		}
 
+		// Only now that the delivery is known to be genuine is its content worth
+		// reading. Selecting all six events subscribes to the backend's catch-all,
+		// so an event added there later would reach a workflow that never asked for
+		// it: what this node was told to listen for is the authority, not the
+		// subscription. Acknowledged with 200, no run.
+		const body = this.getBodyData() as IDataObject;
+		const chosen = this.getNodeParameter('events', []) as string[];
+		if (
+			typeof body.event === 'string' &&
+			chosen.length > 0 &&
+			!chosen.includes(body.event)
+		) {
+			return {};
+		}
+
 		return {
-			workflowData: [
-				[
-					{
-						json: this.getBodyData(),
-					},
-				],
-			],
+			workflowData: [[{ json: body }]],
 		};
 	}
 
@@ -173,6 +183,11 @@ export class SyndieTrigger implements INodeType {
 				const selected = this.getNodeParameter('events', []) as string[];
 				const eventTypes = resolveEventTypes.call(this, selected);
 				const staticData = this.getWorkflowStaticData('node');
+				// A previous deactivation may have failed to remove some
+				// subscriptions and deliberately kept them on record. Overwriting
+				// that record would strand them: still live on the backend, posting
+				// to this same URL under an id this node no longer holds.
+				const leftovers = readSubscriptions(staticData);
 				const created: SyndieSubscription[] = [];
 
 				for (const eventType of eventTypes) {
@@ -196,15 +211,23 @@ export class SyndieTrigger implements INodeType {
 						created.push({ webhookId: id, event: eventType, targetUrl: webhookUrl, signingSecret });
 					} catch (error) {
 						await removeSubscriptions.call(this, baseUrl, created);
-						throw new NodeApiError(this.getNode(), error as JsonObject, {
-							message: `Could not subscribe to "${eventType}" events`,
-							description:
-								'Check that the credential is connected and that this n8n is reachable over https.',
+						// Not NodeApiError: its constructor hands back an existing
+						// NodeApiError unchanged, so the hint below would be dropped.
+						throw new NodeOperationError(this.getNode(), error as Error, {
+							description: `Could not subscribe to "${eventType}" events. Check that the credential is connected and that this n8n is reachable over https.`,
 						});
 					}
 				}
 
-				staticData.subscriptions = created as unknown as IDataObject[];
+				const stranded = leftovers.filter(
+					(old) => !created.some((fresh) => fresh.webhookId === old.webhookId),
+				);
+				const stillStranded = await removeSubscriptions.call(this, baseUrl, stranded);
+
+				staticData.subscriptions = [
+					...created,
+					...stillStranded,
+				] as unknown as IDataObject[];
 				delete staticData.webhookId;
 				return true;
 			},
@@ -220,30 +243,16 @@ export class SyndieTrigger implements INodeType {
 				}
 
 				const baseUrl = await getSyndieBaseUrl.call(this);
-				const kept: SyndieSubscription[] = [];
-				let firstError: unknown = undefined;
-
-				for (const subscription of subscriptions) {
-					try {
-						await this.helpers.httpRequestWithAuthentication.call(this, 'syndieOAuth2Api', {
-							method: 'DELETE',
-							url: syndieApiUrl(baseUrl, `/hooks/${subscription.webhookId}`),
-							json: true,
-						});
-					} catch (error) {
-						if (isNotFoundError(error)) continue;
-						kept.push(subscription);
-						if (firstError === undefined) firstError = error;
-					}
-				}
+				const kept = await removeSubscriptions.call(this, baseUrl, subscriptions);
 
 				if (kept.length > 0) {
 					staticData.subscriptions = kept as unknown as IDataObject[];
 					delete staticData.webhookId;
-					throw new NodeApiError(this.getNode(), firstError as JsonObject, {
-						message: `Could not remove ${kept.length} of ${subscriptions.length} subscription(s)`,
-						description: 'Deactivate the workflow again to retry.',
-					});
+					throw new NodeOperationError(
+						this.getNode(),
+						`Could not remove ${kept.length} of ${subscriptions.length} subscription(s) from Syndie`,
+						{ description: 'Deactivate the workflow again to retry.' },
+					);
 				}
 
 				delete staticData.subscriptions;

@@ -186,11 +186,39 @@ async function trigger() {
 
 	ctx = hookContext({ events: [...helpers.ALL_EVENT_VALUES], staticData: { webhookId: 'legacy' } });
 	await methods.create.call(ctx);
-	check('all six: one default subscription, legacy key dropped', ctx.calls.length === 1 && ctx.calls[0].body.event_type === 'default' && ctx.staticData.webhookId === undefined);
+	check(
+		'all six: one default subscription, and the record left by an older version is removed rather than stranded',
+		ctx.calls.filter((c) => c.method === 'POST').length === 1 &&
+			ctx.calls[0].body.event_type === 'default' &&
+			ctx.calls.some((c) => c.method === 'DELETE' && c.url.endsWith('/hooks/legacy')) &&
+			ctx.staticData.webhookId === undefined &&
+			ctx.staticData.subscriptions.length === 1,
+		JSON.stringify({ calls: ctx.calls.map((c) => `${c.method} ${c.url}`), staticData: ctx.staticData }),
+	);
+
+	ctx = hookContext({
+		events: ['lead.replied'],
+		staticData: { subscriptions: [{ webhookId: 'orphan', event: 'x', targetUrl: '' }] },
+		deleteFails: '/hooks/orphan',
+	});
+	await methods.create.call(ctx);
+	check(
+		'a leftover that still cannot be removed stays on record for the next attempt',
+		ctx.staticData.subscriptions.some((s) => s.webhookId === 'orphan') &&
+			ctx.staticData.subscriptions.length === 2,
+		JSON.stringify(ctx.staticData),
+	);
 
 	ctx = hookContext({ events: ['lead.replied', 'meeting.booked'], failOn: 'meeting.booked' });
 	let error = await throws(() => methods.create.call(ctx));
-	check('a failure part-way rolls back and throws once', error?.constructor.name === 'NodeApiError' && ctx.calls.filter((c) => c.method === 'DELETE').length === 1 && ctx.staticData.subscriptions === undefined);
+	check(
+		'a failure part-way rolls back, and the error explains what to check',
+		error?.constructor.name === 'NodeOperationError' &&
+			/reachable over https/.test(error.description ?? '') &&
+			ctx.calls.filter((c) => c.method === 'DELETE').length === 1 &&
+			ctx.staticData.subscriptions === undefined,
+		`${error?.constructor.name}: ${error?.description}`,
+	);
 
 	ctx = hookContext({ events: ['lead.replied'], baseUrl: 'http://localhost:3000' });
 	error = await throws(() => methods.create.call(ctx));
@@ -214,8 +242,8 @@ async function trigger() {
 
 // ─── the trigger: deliveries ───────────────────────────────────────────────
 
-function webhookContext({ staticData, headers, raw, warnings }) {
-	const rawBody = JSON.stringify({ id: 'evt-1', event: 'lead.replied' });
+function webhookContext({ staticData, headers, raw, warnings, chosen, event }) {
+	const rawBody = raw ?? JSON.stringify({ id: 'evt-1', event: event ?? 'lead.replied' });
 	const response = { statusCode: null, body: null };
 	return {
 		response,
@@ -226,6 +254,8 @@ function webhookContext({ staticData, headers, raw, warnings }) {
 		}),
 		getHeaderData: () => headers,
 		getBodyData: () => JSON.parse(rawBody),
+		getNodeParameter: (name, fallback) =>
+			name === 'events' ? (chosen ?? [...helpers.ALL_EVENT_VALUES]) : fallback,
 		getWorkflowStaticData: () => staticData,
 		getNode: node,
 		logger: { warn: (m) => warnings.push(m), info() {}, debug() {}, error() {} },
@@ -262,18 +292,41 @@ async function deliveries() {
 	check('a 0.3.x activation is let through with one warning', r.out.workflowData?.[0][0].json.id === 'evt-1' && r.warnings.length === 1);
 	r = await run({ staticData: withSecret, headers: good, raw: null });
 	check('no raw body: the check runs over the re-serialised JSON', r.out.workflowData && r.status === null);
+
+	const unchosen = JSON.stringify({ id: 'evt-2', event: 'lead.opted_out' });
+	r = await run({
+		staticData: withSecret,
+		headers: {
+			'x-webhook-signature': sign(SECRET, unchosen, now),
+			'x-webhook-subscription-id': 'sub1',
+		},
+		raw: unchosen,
+		chosen: ['lead.replied'],
+	});
+	check(
+		'a signed event this workflow did not ask for is acknowledged and does not run it',
+		!r.out.workflowData && r.status === null,
+		JSON.stringify(r),
+	);
+
+	r = await run({
+		staticData: withSecret,
+		headers: good,
+		chosen: ['lead.replied'],
+	});
+	check('a signed event it did ask for still runs it', !!r.out.workflowData);
 }
 
 // ─── the action ────────────────────────────────────────────────────────────
 
-function executeContext({ items, params, continueOnFail = false, fail = false }) {
+function executeContext({ items, params, continueOnFail = false, fail = false, baseUrl }) {
 	const calls = [];
 	return {
 		calls,
 		getInputData: () => items,
 		getNodeParameter: (name, i, fallback) => (name in (params[i] ?? {}) ? params[i][name] : fallback),
 		continueOnFail: () => continueOnFail,
-		getCredentials: async () => ({ baseUrl: 'https://dev-api.syndie.io' }),
+		getCredentials: async () => ({ baseUrl: baseUrl ?? 'https://dev-api.syndie.io' }),
 		getNode: node,
 		helpers: {
 			httpRequestWithAuthentication: async (_cred, opts) => {
@@ -317,7 +370,24 @@ async function action() {
 
 	ctx = executeContext({ items: [item], params: [{ operation: 'create', email: 'a@b.co' }], fail: true });
 	error = await throws(() => n.execute.call(ctx));
-	check('without it an upstream error is a NodeApiError', error?.constructor.name === 'NodeApiError');
+	check(
+		'without it the failure names the item and keeps the upstream message',
+		error?.context?.itemIndex === 0 && /upstream said no/.test(error?.message ?? ''),
+		`${error?.constructor.name}: ${error?.message} ${JSON.stringify(error?.context)}`,
+	);
+
+	ctx = executeContext({
+		items: [item],
+		params: [{ operation: 'create', email: 'a@b.co' }],
+		continueOnFail: true,
+		baseUrl: 'http://localhost:5678',
+	});
+	out = await n.execute.call(ctx);
+	check(
+		'a credential the node cannot use is caught by Continue On Fail, not thrown past it',
+		out[0].length === 1 && /https:\/\//.test(out[0][0].json.error ?? ''),
+		JSON.stringify(out),
+	);
 }
 
 console.log('n8n-nodes-syndie self-test (built package, stubbed n8n context)');

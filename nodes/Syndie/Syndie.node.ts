@@ -5,9 +5,8 @@ import type {
 	INodeProperties,
 	INodeType,
 	INodeTypeDescription,
-	JsonObject,
 } from 'n8n-workflow';
-import { NodeApiError, NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
+import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 import { getSyndieBaseUrl, syndieApiUrl } from './GenericFunctions';
 
 /**
@@ -271,10 +270,13 @@ export class Syndie implements INodeType {
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const items = this.getInputData();
 		const returnData: INodeExecutionData[] = [];
-		const baseUrl = await getSyndieBaseUrl.call(this);
 
 		for (let i = 0; i < items.length; i++) {
 			try {
+				// Read inside the loop's guard: a credential the node cannot use is
+				// as much an item failure as a rejected request, and Continue On
+				// Fail has to be able to catch it.
+				const baseUrl = await getSyndieBaseUrl.call(this);
 				const operation = this.getNodeParameter('operation', i) as string;
 				const response =
 					operation === 'find'
@@ -293,10 +295,13 @@ export class Syndie implements INodeType {
 					});
 					continue;
 				}
-				if (error instanceof NodeOperationError) {
-					throw new NodeOperationError(this.getNode(), error.message, { itemIndex: i });
-				}
-				throw new NodeApiError(this.getNode(), error as JsonObject, { itemIndex: i });
+				// NodeApiError's constructor returns an existing NodeApiError
+				// untouched, so re-wrapping one there silently discards both the
+				// added message and the item index. NodeOperationError wraps it,
+				// keeps its message, and records which item failed.
+				throw new NodeOperationError(this.getNode(), error as Error, {
+					itemIndex: i,
+				});
 			}
 		}
 
