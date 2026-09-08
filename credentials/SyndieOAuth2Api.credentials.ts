@@ -1,12 +1,20 @@
 import type { ICredentialType, INodeProperties } from 'n8n-workflow';
 
 /**
- * Base URL of the Syndie production API. This is the single source of truth for
- * where the credential and both nodes talk to. It is intentionally hardcoded:
- * the public/verified node only ever connects to production. (Internal beta /
- * localhost testing is done from a separate, unpublished branch.)
+ * Where the Syndie production API lives. It is the default of the visible
+ * "API Base URL" field below, so a published node talks to production unless
+ * the person configuring the credential deliberately points it elsewhere
+ * (a staging environment, or a tunnel while testing).
  */
 export const SYNDIE_API_BASE_URL = 'https://api.syndie.io';
+
+/**
+ * The path under which the api-engine serves everything n8n needs: the OAuth
+ * server, the webhook subscriptions and the lead actions.
+ */
+export const SYNDIE_N8N_API_PATH = '/api/integrations/automation/n8n';
+
+const BASE_URL_EXPRESSION = '={{ $self["baseUrl"].replace(/\\/+$/, "") }}';
 
 export class SyndieOAuth2Api implements ICredentialType {
 	name = 'syndieOAuth2Api';
@@ -39,20 +47,29 @@ export class SyndieOAuth2Api implements ICredentialType {
 			type: 'string',
 			default: '',
 			required: true,
-			description: 'The Client ID provided by Syndie for your application',
+			description: 'The Client ID Syndie issued for n8n',
+		},
+		{
+			displayName: 'API Base URL',
+			name: 'baseUrl',
+			type: 'string',
+			default: SYNDIE_API_BASE_URL,
+			placeholder: 'e.g. https://api.syndie.io',
+			description:
+				'Where the Syndie API lives. Keep the default unless Syndie support gave you another address.',
 		},
 		{
 			displayName: 'Authorization URL',
 			name: 'authUrl',
 			type: 'hidden',
-			default: `${SYNDIE_API_BASE_URL}/api/integrations/automation/n8n/oauth/authorize`,
+			default: `${BASE_URL_EXPRESSION}${SYNDIE_N8N_API_PATH}/oauth/authorize`,
 			required: true,
 		},
 		{
 			displayName: 'Access Token URL',
 			name: 'accessTokenUrl',
 			type: 'hidden',
-			default: `${SYNDIE_API_BASE_URL}/api/integrations/automation/n8n/oauth/callback`,
+			default: `${BASE_URL_EXPRESSION}${SYNDIE_N8N_API_PATH}/oauth/token`,
 			required: true,
 		},
 		{
