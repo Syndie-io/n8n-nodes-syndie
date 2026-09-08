@@ -1,97 +1,72 @@
 # Contributing
 
-Thanks for working on `@syndie/n8n-nodes-syndie`. This guide covers the local
-dev loop, the conventions to follow, and how a release reaches npm and n8n's
-verified registry. For *how the code is structured*, read
+This covers the local loop, the conventions, and how a release reaches npm and
+n8n's verified registry. For how the code is structured read
 [ARCHITECTURE.md](./ARCHITECTURE.md) first.
 
 ## Prerequisites
 
-- **Node.js ≥ 20.15** and **pnpm** (the repo pins `pnpm@11`; `corepack enable`
-  picks it up automatically).
-- A local n8n instance for manual testing (see
-  [docs/testing-self-hosted.md](./docs/testing-self-hosted.md)).
+- **Node.js ≥ 20.15** and **pnpm 11** (`corepack enable` picks the pinned version).
+- For a real round trip, a publicly reachable n8n and a Syndie backend you may
+  point the credential at ([docs/testing-self-hosted.md](./docs/testing-self-hosted.md)).
 
-## Local development loop
-
-```bash
-pnpm install        # respects pnpm-workspace.yaml build approvals
-pnpm dev            # build + watch, links the package into a local n8n
-pnpm build          # one-off production build into dist/
-pnpm lint           # n8n community-node lint (ESLint 9, must pass for verification)
-pnpm lint:fix       # auto-fix what it can
-pnpm format         # prettier over nodes/ and credentials/
-```
-
-To load an unpublished build into n8n, point it at the build output:
+## Local loop
 
 ```bash
-N8N_CUSTOM_EXTENSIONS=/path/to/n8n-nodes-syndie/dist
+pnpm install        # pnpm-workspace.yaml already declines the native optional builds
+pnpm lint           # n8n's community-node rules; a lint error blocks verification
+pnpm build          # dist/
+pnpm test           # scripts/self-test.mjs against dist/ — 56 checks, ~1 s
+npm pack --dry-run --ignore-scripts   # what would ship: dist, docs, README, LICENSE
+pnpm dev            # build + watch, linked into a local n8n
 ```
 
-or `npm link` the package into your n8n custom directory (`~/.n8n/custom`).
+## Conventions
 
-## Project conventions
+- **TypeScript, Prettier** (tabs, single quotes, 100 columns). `pnpm format`.
+- **`pnpm lint` and `pnpm test` must be green.** The self-test is the only
+  automated proof the nodes behave; extend it when you change behaviour.
+- **The API address comes from the credential.** Read it with
+  `getSyndieBaseUrl()` and build URLs with `syndieApiUrl()`; never hard-code a
+  host or add a second URL field.
+- **Shared logic goes in `GenericFunctions.ts`**, pure and importable by the
+  self-test, not inside a node class.
+- **No runtime dependencies** (verified nodes may not have any); Node's `crypto`
+  is the only built-in used.
+- **Keep saved workflows opening.** Stored parameter values (`create`, `find`,
+  `events`) and the static-data shape are contracts; change labels, not values,
+  and read old shapes when you add new ones.
+- **English-only** UI strings and docs.
+- When a node's parameters or the backend contract change, update `docs/` in the
+  same commit.
 
-- **TypeScript only**, formatted by Prettier (tabs, single quotes, 100 cols —
-  see `.prettierrc.js`). Run `pnpm format` before committing.
-- **`pnpm lint` must be clean.** The n8n lint rules are the same ones the
-  verification scanner enforces; a lint error is a verification blocker.
-- **One production base URL.** All Syndie URLs derive from `SYNDIE_API_BASE_URL`
-  in `credentials/SyndieOAuth2Api.credentials.ts`. Don't hardcode URLs elsewhere
-  or reintroduce free-text URL inputs — they break n8n verification.
-- **No runtime dependencies.** Verified nodes may not have `dependencies`; only
-  `devDependencies` and the `n8n-workflow` peer. Keep it that way.
-- **English-only** UI strings and docs (a verification requirement).
-- If you change a node's parameters or the backend contract, update the matching
-  file under `docs/` in the same PR.
+## Commits
 
-## Making a change — checklist
+One idea per commit. The subject says what changed in plain words; the body says
+what was wrong, what changes, what was deliberately not done, and what was run to
+prove it. No AI attribution.
 
-1. Branch off the default branch.
-2. Make the change; keep nodes, credential, and `docs/` in sync.
-3. `pnpm lint && pnpm build` — both green.
-4. Manually test against a real n8n + the Syndie production API
-   ([docs/testing-self-hosted.md](./docs/testing-self-hosted.md)). The OAuth flow
-   and webhook round-trip can't be unit-tested — verify them by hand.
-5. Open a PR. CI (`.github/workflows/ci.yml`) re-runs lint + build on every push.
+## Releasing
 
-## Releasing to npm
+Publishing happens **only on a version tag**; merging never publishes.
 
-Publishing is automated and **only happens on a version tag** — committing or
-merging never publishes.
-
-1. Make sure `main` is green (lint + build) and `docs/` are up to date.
-2. Run the release helper, which bumps the version, updates the changelog,
-   commits, tags, and pushes:
+1. On the default branch, with CI green: bump `version` in `package.json`, add the
+   entry to `CHANGELOG.md`, commit as `chore(release): x.y.z`.
+2. Tag and push the tag:
    ```bash
-   pnpm release
+   git tag vX.Y.Z && git push origin vX.Y.Z
    ```
-   (Or bump `package.json` and push a `*.*.*` tag manually.)
-3. The tag triggers `.github/workflows/publish.yml`, which publishes to npm
-   **with an npm provenance attestation** via GitHub Actions OIDC Trusted
-   Publishing — no long-lived token. This is mandatory for verified nodes as of
-   1 May 2026.
+   `publish.yml` matches `*.*.*` tags, builds, and publishes to npm with a
+   provenance attestation through GitHub OIDC Trusted Publishing (no token).
+   (`n8n-node release` exists but insists on a branch named `main`; the manual
+   path above does the same thing.)
+3. Verify: `npm view @syndie/n8n-nodes-syndie@X.Y.Z dist.attestations` and
+   `npx @n8n/scan-community-package @syndie/n8n-nodes-syndie@X.Y.Z`.
+4. Check the listing on the n8n Creator Portal (<https://creators.n8n.io>) shows
+   the new version as verified; resubmit there if it does not pick it up.
 
-The scoped package publishes publicly because `package.json` sets
-`publishConfig.access: "public"`.
-
-## Getting the node verified by n8n
-
-The package already meets the hard technical gates (scoped `@…/n8n-nodes-*` name,
-`n8n-community-node-package` keyword, MIT license, zero runtime deps, lint clean,
-provenance publishing). To get it into n8n's **Verified Community Nodes** registry
-(installable in-app, including on n8n Cloud, without the community-packages flag):
-
-1. Publish a release via GitHub Actions with provenance (above).
-2. Confirm `npx @n8n/scan-community-package @syndie/n8n-nodes-syndie` passes.
-3. Submit the node at the **n8n Creator Portal** (<https://creators.n8n.io>).
-   An automated review runs first, then n8n's team manually vets it.
-
-See n8n's
-[verification guidelines](https://docs.n8n.io/integrations/creating-nodes/build/reference/verification-guidelines/)
-for the authoritative, current rules.
+The package publishes publicly because `publishConfig.access` is `public`.
 
 ## Questions
 
-Reach the maintainers at [support@syndie.io](mailto:support@syndie.io).
+[support@syndie.io](mailto:support@syndie.io)

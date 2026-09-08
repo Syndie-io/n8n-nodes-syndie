@@ -41,7 +41,8 @@
 	},
 	"files": [
 		"dist",
-		"docs"
+		"docs",
+		"CHANGELOG.md"
 	],
 	"n8n": {
 		"n8nNodesApiVersion": 1,
