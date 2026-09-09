@@ -1,8 +1,11 @@
 # Changelog
 
-## 0.4.0 — unreleased
+## 0.4.0 — 2026-09-09
 
-Requires the Syndie backend release that delivers events (September 2026).
+Needs the Syndie backend release that delivers events. Until that reaches
+production the trigger will not fire and Import/Find answer 404, so point the
+credential's API Base URL at a backend that has it, or wait for the production
+release.
 
 ### Trigger
 - **Events setting** with six events: Lead Replied, Connection Accepted, Status
@@ -29,7 +32,7 @@ Requires the Syndie backend release that delivers events (September 2026).
 ### Package
 - Build tool `@n8n/node-cli` 0.47; the tarball no longer ships the TypeScript
   build cache or a stray `dist/package.json`, and now ships `docs/`.
-- `pnpm test`: a self-test that drives the built nodes with a stubbed n8n (56
+- `pnpm test`: a self-test that drives the built nodes with a stubbed n8n (60
   checks), run in CI.
 - Category Sales (was Development); package description and keywords say what the
   nodes do; licence notice names Syndie.

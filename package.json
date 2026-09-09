@@ -1,6 +1,6 @@
 {
 	"name": "@syndie/n8n-nodes-syndie",
-	"version": "0.3.2",
+	"version": "0.4.0",
 	"description": "Syndie for n8n: start workflows when a lead replies, connects, changes status, opts out, is handed to a person or books a meeting, and import or find leads",
 	"publishConfig": {
 		"access": "public"
