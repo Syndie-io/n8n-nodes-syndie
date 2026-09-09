@@ -1,132 +1,95 @@
 # Architecture
 
-This document explains **how `@syndie/n8n-nodes-syndie` is put together** so a
-developer who has never seen the repo can understand it, change it, and ship it
-with confidence. For *user*-facing setup, see [README.md](./README.md); for the
-local dev loop and releasing, see [CONTRIBUTING.md](./CONTRIBUTING.md).
+How `@syndie/n8n-nodes-syndie` is put together, for someone who has not seen the
+repository before. User-facing setup is in [README.md](./README.md); the dev loop
+and releasing are in [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## 1. What this package is
 
 An [n8n community node](https://docs.n8n.io/integrations/community-nodes/) package
-that connects n8n workflows to [Syndie](https://syndie.io). It ships **two nodes**
-that share **one credential**:
+with two nodes and one credential:
 
 | Piece | Direction | File |
-| ----- | --------- | ---- |
-| **Syndie Trigger** | Syndie → n8n (reverse webhook) | `nodes/Syndie/SyndieTrigger.node.ts` |
-| **Syndie** (action) | n8n → Syndie (create lead) | `nodes/Syndie/Syndie.node.ts` |
-| **Syndie OAuth2 API** (credential) | shared auth | `credentials/SyndieOAuth2Api.credentials.ts` |
+|---|---|---|
+| **Syndie Trigger** | Syndie → n8n, six events, signed | `nodes/Syndie/SyndieTrigger.node.ts` |
+| **Syndie** (action) | n8n → Syndie, import or find a lead | `nodes/Syndie/Syndie.node.ts` |
+| **Syndie OAuth2 API** | shared credential | `credentials/SyndieOAuth2Api.credentials.ts` |
 
-There is no runtime code beyond these three files (plus icons and JSON codex
-metadata). n8n loads the package by reading the `n8n` attribute in
-`package.json`, not a `main` entry point.
+Shared logic lives in `nodes/Syndie/GenericFunctions.ts`, the file community
+nodes conventionally keep such helpers in. There is no runtime dependency beyond
+`n8n-workflow` (a peer) and Node's built-in `crypto`.
 
 ## 2. Repository layout
 
 ```
 credentials/
-  SyndieOAuth2Api.credentials.ts   # OAuth2 (PKCE) credential + SYNDIE_API_BASE_URL
-  SyndieLogo.svg / .dark.svg       # credential icons
+  SyndieOAuth2Api.credentials.ts   # OAuth2 + PKCE; the API Base URL field
 nodes/Syndie/
-  Syndie.node.ts                   # action node (Lead → Create)
-  Syndie.node.json                 # codex metadata (categories, doc links)
-  SyndieTrigger.node.ts            # webhook trigger node
-  SyndieTrigger.node.json          # codex metadata
-  SyndieLogo.svg / .dark.svg       # node icons
-docs/                              # deep-dive references (see §6)
-dist/                              # build output (git-ignored, published to npm)
-.github/workflows/                 # ci.yml (lint+build), publish.yml (provenance)
-package.json                       # the `n8n` attribute registers nodes + credential
+  GenericFunctions.ts              # events, URLs, subscribe-reply reader, signature check
+  SyndieTrigger.node.ts            # subscribe / verify / unsubscribe
+  Syndie.node.ts                   # import-lead / find-lead
+  *.node.json                      # codex metadata (category Sales, doc links)
+  SyndieLogo*.svg                  # icons
+scripts/self-test.mjs              # drives dist/ with a stubbed n8n (pnpm test)
+docs/                              # the references linked from the codex files
+.github/workflows/                 # ci.yml (lint, build, test, pack guard), publish.yml
 ```
 
-## 3. The single source of truth: `SYNDIE_API_BASE_URL`
+n8n loads the package through the `n8n` attribute in `package.json`, which lists
+the compiled paths under `dist/`; those paths must match the build output.
 
-`credentials/SyndieOAuth2Api.credentials.ts` exports one constant:
+## 3. Where the API address comes from
 
-```ts
-export const SYNDIE_API_BASE_URL = 'https://api.syndie.io';
-```
+The credential has a visible **API Base URL** field, defaulting to
+`https://api.syndie.io`. The hidden authorize and token URLs are expressions over
+it (`$self["baseUrl"]`), and both nodes read it through `getSyndieBaseUrl()`,
+which strips a trailing slash and refuses anything but https. Every request URL
+is then `syndieApiUrl(base, path)` = base + `/api/integrations/automation/n8n` +
+path. One field moves the whole package to a staging backend or a tunnel.
 
-Everything that talks to Syndie derives its URL from this:
+## 4. Authentication
 
-- The credential's hidden `authUrl` / `accessTokenUrl` (OAuth authorize + token).
-- The action node's `CREATE_LEAD_URL` (imports the constant).
-- The trigger node's `SUBSCRIBE_URL` (imports the constant).
+The credential extends n8n's `oAuth2Api`: Authorization Code with PKCE, token in
+the `Authorization` header, credentials re-sent on refresh. The backend is the
+OAuth server; it serves both grants on `/oauth/token`, validates the client id
+against its own configuration (blank = the connector is off, 503), accepts n8n's
+standard redirect path on any https host, binds the code exchange to the
+redirect used at authorize, and stores tokens hashed. Both nodes call the backend
+with `httpRequestWithAuthentication`, which injects and refreshes the token.
 
-It is **hardcoded to production on purpose.** The public / verified node only ever
-connects to `api.syndie.io` — there is no environment selector and no free-text
-URL override, which keeps the UI simple and satisfies n8n's verification rules
-(no arbitrary outbound URLs). Internal beta/localhost testing lives on a separate,
-unpublished branch that re-adds those options.
+## 5. The trigger
 
-> If the production host ever changes, change it in this one place and rebuild.
+**Activation** turns the Events setting into subscriptions: all six → one
+`default` subscription (also what 0.3.x sent), a subset → one per event. Each
+subscribe answers with an id and a signing secret, which the node keeps in its
+static data as `subscriptions[]`. A failure part-way removes what was created and
+raises once.
 
-## 4. Authentication (OAuth2 + PKCE)
+**Delivery** is checked before a run starts: the subscription id header selects
+the secret, `X-Webhook-Signature` (`t=…,v1=…`) is verified as HMAC-SHA256 of
+`"<t>.<raw body>"` in constant time with a five-minute window, and anything else
+is answered `401` with `noWebhookResponse`. A workflow activated on 0.3.x holds no
+secret and is let through with a warning until re-activated.
 
-The credential `extends` n8n's built-in `oAuth2Api`, so n8n drives the whole
-OAuth dance. The credential only pins the Syndie-specific bits:
+**Deactivation** deletes every remembered subscription, treats 404 as done, and
+keeps failures on record for the next attempt.
 
-- `grantType: authorizationCode`, `pkce: true` (public client, no secret).
-- `authUrl` / `accessTokenUrl` derived from `SYNDIE_API_BASE_URL`.
-- Token placed in the `Authorization` header; refresh re-sends credentials.
-- The user supplies a single field: **Client ID**.
+## 6. The action
 
-Both nodes call the backend with
-`this.helpers.httpRequestWithAuthentication.call(this, 'syndieOAuth2Api', …)`,
-which injects the bearer token and refreshes it transparently.
+Import posts the filled-in fields to `actions/import-lead`; the backend matches
+by public identifier, then email, inside the workspace and answers
+`{ created, lead }`. Find gets `actions/find-lead` with `linkedin` and/or `email`
+and answers `{ found, lead }`. Both keep the stored operation values (`create`,
+`find`) stable so saved workflows open; validation happens before any request and
+names the item.
 
-> **Backend prerequisite:** the n8n redirect URI
-> `https://<n8n-host>/rest/oauth2-credential/callback` must be allowlisted on the
-> Syndie backend or "Connect" is rejected.
+## 7. Build, test, publish
 
-## 5. How each node works
-
-### Action — `Syndie.node.ts` (Lead → Create)
-- Resource **Lead**, Operation **Create**. All lead fields live under
-  **Additional Fields** and are optional.
-- `execute()` loops over input items. For each item it builds a body from the
-  non-empty optional fields (trimmed) plus `automationId` (the n8n workflow id,
-  so leads trace back to their source automation), then
-  `POST`s to `CREATE_LEAD_URL`.
-- **Continue On Fail** turns a failing item into `{ error }` instead of aborting.
-- Full request/response contract: [docs/n8n-action.md](./docs/n8n-action.md).
-
-### Trigger — `SyndieTrigger.node.ts` (reverse webhook)
-Implements n8n's webhook lifecycle:
-- **`create`** (on activation): POSTs n8n's own webhook URL to `SUBSCRIBE_URL`,
-  then stores the returned backend `webhookId` in workflow static data.
-- **`webhook`** (on each event): emits the incoming POST body as the first item.
-- **`checkExists`**: always `false` — the backend deduplicates, so `create`
-  re-runs on every activation.
-- **`delete`** (on deactivation): `DELETE`s `.../hooks/<webhookId>`; `404` counts
-  as success; other errors keep the stored id for a retry.
-- Lifecycle, payload shapes, and known gaps: [docs/n8n-trigger.md](./docs/n8n-trigger.md).
-
-## 6. Build, registration, and publishing
-
-- **Toolchain:** `@n8n/node-cli` (`n8n-node build` / `lint`). TypeScript →
-  CommonJS into `dist/`, mirroring the source tree; icons and `*.node.json` are
-  copied alongside.
-- **Registration:** `package.json` → `n8n` attribute lists the compiled paths:
-  ```json
-  "n8n": {
-    "n8nNodesApiVersion": 1,
-    "credentials": ["dist/credentials/SyndieOAuth2Api.credentials.js"],
-    "nodes": ["dist/nodes/Syndie/SyndieTrigger.node.js", "dist/nodes/Syndie/Syndie.node.js"]
-  }
-  ```
-  These paths **must** match the build output, or n8n silently fails to load the
-  node.
-- **Publishing:** pushing a version tag triggers `.github/workflows/publish.yml`,
-  which publishes to npm **with a provenance attestation** via GitHub Actions —
-  mandatory for verified nodes since 1 May 2026. See
-  [CONTRIBUTING.md](./CONTRIBUTING.md) for the release steps and the verification
-  submission process.
-
-## 7. Deeper references
-
-- [docs/n8n-action.md](./docs/n8n-action.md) — action node + backend contract.
-- [docs/n8n-trigger.md](./docs/n8n-trigger.md) — trigger lifecycle, payload shapes.
-- [docs/testing-self-hosted.md](./docs/testing-self-hosted.md) — end-to-end test
-  on a publicly-reachable n8n.
-
+- **Build:** `@n8n/node-cli` (`n8n-node build`), TypeScript → CommonJS in `dist/`.
+  `tsconfig` is not incremental and does not include `package.json`, so the
+  tarball carries no build cache and no stray `dist/package.json`; CI fails if
+  either reappears.
+- **Lint:** `n8n-node lint`, the same rules n8n's verification runs.
+- **Test:** `pnpm test` runs `scripts/self-test.mjs` against `dist/`.
+- **Publish:** pushing a `*.*.*` tag runs `publish.yml`, which publishes with an
+  npm provenance attestation through GitHub OIDC (required for verified nodes).

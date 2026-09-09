@@ -1,13 +1,19 @@
 {
 	"name": "@syndie/n8n-nodes-syndie",
 	"version": "0.3.2",
-	"description": "n8n node for the Syndie API",
+	"description": "Syndie for n8n: start workflows when a lead replies, connects, changes status, opts out, is handed to a person or books a meeting, and import or find leads",
 	"publishConfig": {
 		"access": "public"
 	},
 	"packageManager": "pnpm@11.0.8",
 	"keywords": [
-		"n8n-community-node-package"
+		"n8n-community-node-package",
+		"syndie",
+		"linkedin",
+		"outreach",
+		"sales",
+		"leads",
+		"crm"
 	],
 	"license": "MIT",
 	"homepage": "https://syndie.io",
@@ -29,11 +35,14 @@
 		"lint": "n8n-node lint",
 		"lint:fix": "n8n-node lint --fix",
 		"format": "prettier nodes credentials --write",
+		"test": "node scripts/self-test.mjs",
 		"release": "n8n-node release",
 		"prepublishOnly": "n8n-node prerelease"
 	},
 	"files": [
-		"dist"
+		"dist",
+		"docs",
+		"CHANGELOG.md"
 	],
 	"n8n": {
 		"n8nNodesApiVersion": 1,
@@ -47,7 +56,8 @@
 		]
 	},
 	"devDependencies": {
-		"@n8n/node-cli": "^0.35.0",
+		"@n8n/node-cli": "^0.47.0",
+		"@types/node": "^20.19.0",
 		"eslint": "9.32.0",
 		"prettier": "3.6.2",
 		"release-it": "^19.0.4",

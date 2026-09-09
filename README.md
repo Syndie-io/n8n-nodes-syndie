@@ -1,22 +1,15 @@
-# Syndie n8n Community Node
+# Syndie for n8n
 
-Connect your n8n workflows to [Syndie.io](https://syndie.io) with OAuth2. This
-package provides two nodes that share a single credential:
+Connect [Syndie](https://syndie.io) to your n8n workflows. One credential, two
+nodes:
 
-- **Syndie Trigger** — starts a workflow when Syndie sends an event (a reverse
-  webhook: Syndie → n8n).
-- **Syndie** — an action node that pushes data *into* Syndie (n8n → Syndie).
-  Today it supports **Lead → Create**.
+- **Syndie Trigger** — starts a workflow when something happens to a lead in
+  Syndie. Six events, delivered signed, within seconds.
+- **Syndie** — an action node. **Import a lead** into Syndie without creating
+  duplicates, or **find a lead** by LinkedIn address or email.
 
-## Features
-
-- Secure OAuth2 authentication (Authorization Code + PKCE)
-- Webhook **trigger** for Syndie lead events
-- **Action** to create leads in your Syndie account
-- Provider-agnostic backend (the same API powers Zapier / n8n / Make)
-- Usable as AI agent tools (`usableAsTool`)
-
-All nodes connect to the Syndie **production** API (`https://api.syndie.io`).
+Available to Syndie workspaces. Installs from the n8n nodes panel (it is a
+verified community node) on n8n Cloud and on self-hosted n8n.
 
 ---
 
@@ -28,69 +21,99 @@ In n8n: **Settings → Community Nodes → Install** and enter:
 @syndie/n8n-nodes-syndie
 ```
 
-Requires `N8N_COMMUNITY_PACKAGES_ENABLED=true` on self-hosted instances. Once the
-package is accepted into n8n's **Verified Community Nodes** program it installs
-directly from the in-app nodes panel (including on n8n Cloud) without that flag.
+Self-hosted instances need `N8N_COMMUNITY_PACKAGES_ENABLED=true` unless the
+package is installed from the in-app nodes panel.
 
-> **Contributing / building from source?** See
-> [CONTRIBUTING.md](./CONTRIBUTING.md) for the local dev loop and release process,
-> and [ARCHITECTURE.md](./ARCHITECTURE.md) for how the nodes, credential, and
-> Syndie backend fit together.
+> Building from source or contributing? See [CONTRIBUTING.md](./CONTRIBUTING.md)
+> for the dev loop and [ARCHITECTURE.md](./ARCHITECTURE.md) for how the pieces
+> fit together.
 
 ---
 
 ## Credentials
 
-Both nodes use the single **Syndie OAuth2 API** credential.
+Both nodes use one **Syndie OAuth2 API** credential.
 
-1. Enter the **Client ID** provided by Syndie.
-2. Client ID: Syndie, Client Secret: Syndie
-3. Click **Connect** and complete the OAuth2 (PKCE) flow.
+| Field | What to enter |
+|---|---|
+| **Client ID** | The Client ID Syndie issued for n8n. Ask Syndie support if you do not have it. |
+| **Client Secret** | Any value. Syndie does not use a secret for n8n (the connection is protected by PKCE); n8n requires the field to be filled. |
+| **API Base URL** | Leave the default, `https://api.syndie.io`, unless Syndie support gave you another address. |
 
-The Authorization and Token URLs are fixed to the Syndie production API, so there
-is nothing else to configure.
-
-> **Self-hosted note:** the OAuth redirect URI
-> `https://<your-n8n-host>/rest/oauth2-credential/callback` must be allowlisted
-> on the Syndie backend, or "Connect" is rejected. See
-> [docs/testing-self-hosted.md](./docs/testing-self-hosted.md).
+Click **Connect**, sign in to Syndie, and approve. Your n8n must be reachable over
+**https**: Syndie sends events to it and only registers https addresses.
 
 ---
 
-## Usage
+## Syndie Trigger
 
-### Syndie Trigger
+1. Add **Syndie Trigger**, select the credential.
+2. Choose the **Events** that should start the workflow. All six are selected by
+   default; a subset is fine.
+3. **Activate** the workflow. Syndie registers n8n's webhook address for you;
+   there is no URL to copy.
 
-1. Add the **Syndie Trigger** node and select the credential.
-2. **Activate** the workflow — this registers n8n's webhook URL with Syndie.
-3. When a lead event occurs, Syndie POSTs it to n8n and the workflow runs. The
-   incoming JSON is emitted as the first item.
+| Event | Fires when |
+|---|---|
+| Lead Replied | a lead answers on LinkedIn or by email |
+| Connection Accepted | a lead accepts the connection request |
+| Status Changed | somebody changes a lead's status in Syndie |
+| Lead Opted Out | the lead asks to stop, complains, or is blocked by hand |
+| Conversation Handed Off | the AI SDR hands the conversation to a person |
+| Meeting Booked | the lead books a meeting |
 
-See [docs/n8n-trigger.md](./docs/n8n-trigger.md) for the lifecycle and payload
-details.
+Each delivery is one item with a plain JSON body: `id`, `event`, `occurredAt`,
+`workspaceId`, `lead { … }`, `campaign { … } | null`, plus one block for the
+event (`reply`, `status`, `optOut`, `handoff` or `meeting`). Use `id` to ignore
+a repeat. Full shapes: [docs/n8n-trigger.md](./docs/n8n-trigger.md).
 
-### Syndie (Create Lead)
-
-1. Add the **Syndie** node → Resource **Lead**, Operation **Create**.
-2. Add lead details under **Additional Fields** (name, job title, company,
-   location, LinkedIn URL, …). All fields are optional; empty ones are omitted.
-3. Execute — the node creates the lead in your connected account and returns it.
-
-See [docs/n8n-action.md](./docs/n8n-action.md) for the request/response contract.
+**Every delivery is signed.** The node checks the signature against the secret
+Syndie handed it when it subscribed, and answers `401` to anything else, so a
+stranger who learns your webhook address cannot start your workflow.
 
 ---
 
-## Testing
+## Syndie (action)
 
-To run both nodes end-to-end against a Syndie backend from a publicly-reachable
-n8n, follow [docs/testing-self-hosted.md](./docs/testing-self-hosted.md).
+**Import** adds a lead as a contact. Give a **LinkedIn URL** (or public
+identifier) and/or an **Email**; name, job title, company, location and phone
+are optional. If Syndie already has that person, the existing contact comes
+back with `created: false` instead of a duplicate. Imported contacts carry no
+campaign and start as not connected.
+
+**Find** looks a lead up by LinkedIn URL or email. Not found is a normal answer
+(`found: false`), so a workflow can branch on it — pair Find with Import for
+"find or create".
+
+Request and response shapes: [docs/n8n-action.md](./docs/n8n-action.md).
+
+---
+
+## Upgrading from 0.3.x
+
+- **Re-activate each workflow that uses the trigger** (deactivate, activate).
+  Until you do, its deliveries are accepted without a signature check, and n8n
+  logs a warning on each one. After re-activation the check is on.
+- The action's **Create** operation is now **Import**. Saved workflows keep
+  working; a LinkedIn URL left under *Additional Fields* is still read. The old
+  *Connection Status* field is ignored.
+- Subscriptions made by 0.3.x receive **every** event, which is also what the new
+  default does.
+
+---
 
 ## Troubleshooting
 
-- Ensure the **Syndie OAuth2 API** credential is connected.
-- For the trigger, make sure `WEBHOOK_URL` points at your public host (not
-  `localhost`) and the workflow is **Active**.
-- Check the n8n **Executions** tab and logs for delivery/registration errors.
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| Connect fails with "not available for your workspace" | the workspace is not eligible for this connector | contact Syndie support |
+| Connect fails with a client id error | wrong Client ID | use the one Syndie issued |
+| Activation fails: "must be reachable over https" | n8n advertises an http or localhost address | set `WEBHOOK_URL` to your public https address and restart n8n |
+| Nothing arrives after activation | the workflow was activated before Syndie had events, or no event has happened yet | re-activate, then change a lead's status in Syndie |
+| n8n logs "deliveries are not signed" | activated on 0.3.x | re-activate the workflow |
+| Deliveries answered 401 | a delivery from something other than Syndie, or a stale subscription | re-activate the workflow; if it persists, contact support |
+
+---
 
 ## License
 
@@ -98,9 +121,4 @@ n8n, follow [docs/testing-self-hosted.md](./docs/testing-self-hosted.md).
 
 ## Support
 
-For help, contact [support@syndie.io](mailto:support@syndie.io).
-
-## Links
-
-- [Syndie.io](https://syndie.io)
-- [n8n Documentation](https://docs.n8n.io)
+[support@syndie.io](mailto:support@syndie.io)

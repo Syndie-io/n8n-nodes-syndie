@@ -1,30 +1,89 @@
 import type {
+	IDataObject,
 	IExecuteFunctions,
 	INodeExecutionData,
+	INodeProperties,
 	INodeType,
 	INodeTypeDescription,
-	INodeProperties,
-	IDataObject,
 } from 'n8n-workflow';
-import { NodeApiError, NodeOperationError, NodeConnectionTypes } from 'n8n-workflow';
-import { SYNDIE_API_BASE_URL } from '../../credentials/SyndieOAuth2Api.credentials';
+import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
+import { getSyndieBaseUrl, syndieApiUrl } from './GenericFunctions';
 
-// The Syndie "create lead" action endpoint. The base URL is hardcoded to
-// production (single source of truth in the credential) — the same API the
-// OAuth flow authenticates against.
-const CREATE_LEAD_URL = `${SYNDIE_API_BASE_URL}/api/integrations/automation/n8n/actions/create-lead`;
-
-// Optional lead fields, mirrored from the backend CreateAutomationLeadDto.
-const OPTIONAL_LEAD_FIELDS = [
-	'firstName',
-	'lastName',
-	'jobTitle',
+/**
+ * Optional details an import may carry, mirrored from the backend's
+ * ImportLeadDto. The three the backend accepts only for older workflows
+ * (campaignId, automationId, connectionStatus) are deliberately not sent.
+ */
+const IMPORT_DETAIL_FIELDS = [
 	'company',
+	'firstName',
+	'jobTitle',
+	'lastName',
 	'location',
-	'linkedinUrl',
+	'phone',
 	'publicIdentifier',
-	'connectionStatus',
 ] as const;
+
+function text(value: unknown): string {
+	return typeof value === 'string' || typeof value === 'number' ? `${value}`.trim() : '';
+}
+
+/** POST .../actions/import-lead — the body carries only what was filled in. */
+async function importLead(this: IExecuteFunctions, baseUrl: string, i: number): Promise<unknown> {
+	const additional = this.getNodeParameter('additionalFields', i, {}) as IDataObject;
+	const body: IDataObject = {};
+
+	// A workflow saved by 0.3.x kept the LinkedIn URL inside Additional
+	// Fields; read it from there when the new top-level field is empty.
+	const linkedinUrl = text(this.getNodeParameter('linkedinUrl', i, '')) || text(additional.linkedinUrl);
+	const email = text(this.getNodeParameter('email', i, ''));
+	if (linkedinUrl) body.linkedinUrl = linkedinUrl;
+	if (email) body.email = email;
+
+	for (const key of IMPORT_DETAIL_FIELDS) {
+		const value = text(additional[key]);
+		if (value) body[key] = value;
+	}
+
+	if (!body.linkedinUrl && !body.email && !body.publicIdentifier) {
+		throw new NodeOperationError(
+			this.getNode(),
+			'Give a LinkedIn URL, a public identifier or an email so the lead can be matched',
+			{ itemIndex: i },
+		);
+	}
+
+	return await this.helpers.httpRequestWithAuthentication.call(this, 'syndieOAuth2Api', {
+		method: 'POST',
+		url: syndieApiUrl(baseUrl, '/actions/import-lead'),
+		body,
+		json: true,
+	});
+}
+
+/** GET .../actions/find-lead — answers { found, lead }; not found is not an error. */
+async function findLead(this: IExecuteFunctions, baseUrl: string, i: number): Promise<unknown> {
+	const qs: IDataObject = {};
+	const linkedin = text(this.getNodeParameter('linkedin', i, ''));
+	const email = text(this.getNodeParameter('findEmail', i, ''));
+	if (linkedin) qs.linkedin = linkedin;
+	if (email) qs.email = email;
+
+	if (!qs.linkedin && !qs.email) {
+		throw new NodeOperationError(
+			this.getNode(),
+			'Give a LinkedIn URL or an email to look the lead up by',
+			{ itemIndex: i },
+		);
+	}
+
+	return await this.helpers.httpRequestWithAuthentication.call(this, 'syndieOAuth2Api', {
+		method: 'GET',
+		url: syndieApiUrl(baseUrl, '/actions/find-lead'),
+		qs,
+		json: true,
+	});
+}
 
 export class Syndie implements INodeType {
 	description: INodeTypeDescription = {
@@ -33,8 +92,8 @@ export class Syndie implements INodeType {
 		icon: { light: 'file:SyndieLogo.svg', dark: 'file:SyndieLogo.dark.svg' },
 		group: ['transform'],
 		version: 1,
-		subtitle: '={{ "Lead: " + $parameter["operation"] }}',
-		description: 'Send leads to Syndie',
+		subtitle: '={{ $parameter["operation"] === "find" ? "Find a lead" : "Import a lead" }}',
+		description: 'Import leads into Syndie, or look them up',
 		defaults: {
 			name: 'Syndie',
 		},
@@ -73,13 +132,50 @@ export class Syndie implements INodeType {
 				},
 				options: [
 					{
-						name: 'Create',
+						name: 'Find',
+						value: 'find',
+						action: 'Find a lead',
+						description: 'Look a lead up by LinkedIn address or email; not found is a normal answer',
+					},
+					{
+						// The stored value stays "create" so workflows saved by 0.3.x keep
+						// opening; only the label changed, because that is what it does now.
+						name: 'Import',
 						value: 'create',
-						action: 'Create a lead',
-						description: 'Add a lead to the connected Syndie account',
+						action: 'Import a lead',
+						description:
+							'Add a lead as a contact, or return the existing contact when the person is already there',
 					},
 				],
 				default: 'create',
+			},
+			{
+				displayName: 'LinkedIn URL',
+				name: 'linkedinUrl',
+				type: 'string',
+				default: '',
+				placeholder: 'e.g. https://www.linkedin.com/in/sarah-green',
+				description: 'The profile address, or just the public identifier after /in/',
+				displayOptions: {
+					show: {
+						resource: ['lead'],
+						operation: ['create'],
+					},
+				},
+			},
+			{
+				displayName: 'Email',
+				name: 'email',
+				type: 'string',
+				default: '',
+				placeholder: 'e.g. sarah@kestrel.io',
+				description: 'Used to match the person when there is no LinkedIn address',
+				displayOptions: {
+					show: {
+						resource: ['lead'],
+						operation: ['create'],
+					},
+				},
 			},
 			{
 				displayName: 'Additional Fields',
@@ -101,14 +197,6 @@ export class Syndie implements INodeType {
 						default: '',
 					},
 					{
-						displayName: 'Connection Status',
-						name: 'connectionStatus',
-						type: 'string',
-						default: '',
-						placeholder: 'pending',
-						description: 'Initial connection status. Defaults to "pending" when empty.',
-					},
-					{
 						displayName: 'First Name',
 						name: 'firstName',
 						type: 'string',
@@ -128,17 +216,14 @@ export class Syndie implements INodeType {
 						default: '',
 					},
 					{
-						displayName: 'LinkedIn URL',
-						name: 'linkedinUrl',
-						type: 'string',
-						default: '',
-						placeholder: 'https://linkedin.com/in/john-doe',
-						description:
-							'The public identifier is parsed from this when Public Identifier is left empty',
-					},
-					{
 						displayName: 'Location',
 						name: 'location',
+						type: 'string',
+						default: '',
+					},
+					{
+						displayName: 'Phone',
+						name: 'phone',
 						type: 'string',
 						default: '',
 					},
@@ -147,10 +232,37 @@ export class Syndie implements INodeType {
 						name: 'publicIdentifier',
 						type: 'string',
 						default: '',
-						placeholder: 'john-doe',
-						description: 'LinkedIn public identifier (the profile slug after /in/)',
+						placeholder: 'e.g. sarah-green',
+						description: 'The LinkedIn profile slug after /in/, when you have it instead of the URL',
 					},
 				],
+			},
+			{
+				displayName: 'LinkedIn URL',
+				name: 'linkedin',
+				type: 'string',
+				default: '',
+				placeholder: 'e.g. https://www.linkedin.com/in/sarah-green',
+				description: 'The profile address or the public identifier after /in/',
+				displayOptions: {
+					show: {
+						resource: ['lead'],
+						operation: ['find'],
+					},
+				},
+			},
+			{
+				displayName: 'Email',
+				name: 'findEmail',
+				type: 'string',
+				default: '',
+				placeholder: 'e.g. sarah@kestrel.io',
+				displayOptions: {
+					show: {
+						resource: ['lead'],
+						operation: ['find'],
+					},
+				},
 			},
 		] as INodeProperties[],
 	};
@@ -161,42 +273,15 @@ export class Syndie implements INodeType {
 
 		for (let i = 0; i < items.length; i++) {
 			try {
-				const additionalFields = this.getNodeParameter(
-					'additionalFields',
-					i,
-					{},
-				) as IDataObject;
-
-				const body: IDataObject = {};
-
-				// Identify the source automation: the id of the n8n workflow this
-				// node runs in. The backend stores it on the external lead so leads
-				// can be traced back to the automation that produced them.
-				const automationId = this.getWorkflow()?.id;
-				if (automationId !== undefined && automationId !== null && `${automationId}` !== '') {
-					body.automationId = `${automationId}`;
-				}
-
-				for (const key of OPTIONAL_LEAD_FIELDS) {
-					const value = additionalFields[key];
-					if (value !== undefined && value !== null && `${value}`.trim() !== '') {
-						body[key] = `${value}`.trim();
-					}
-				}
-
-				const response = await this.helpers.httpRequestWithAuthentication.call(
-					this,
-					'syndieOAuth2Api',
-					{
-						method: 'POST',
-						url: CREATE_LEAD_URL,
-						body,
-						json: true,
-						headers: {
-							'Content-Type': 'application/json',
-						},
-					},
-				);
+				// Read inside the loop's guard: a credential the node cannot use is
+				// as much an item failure as a rejected request, and Continue On
+				// Fail has to be able to catch it.
+				const baseUrl = await getSyndieBaseUrl.call(this);
+				const operation = this.getNodeParameter('operation', i) as string;
+				const response =
+					operation === 'find'
+						? await findLead.call(this, baseUrl, i)
+						: await importLead.call(this, baseUrl, i);
 
 				returnData.push({
 					json: (response as IDataObject) ?? {},
@@ -205,22 +290,16 @@ export class Syndie implements INodeType {
 			} catch (error) {
 				if (this.continueOnFail()) {
 					returnData.push({
-						json: { error: error.message },
+						json: { error: (error as Error).message },
 						pairedItem: { item: i },
 					});
 					continue;
 				}
-				if (error.response) {
-					throw new NodeApiError(this.getNode(), error, {
-						message: `Failed to create lead: ${error.response.status} ${error.response.statusText}`,
-						description: error.response.data
-							? JSON.stringify(error.response.data)
-							: undefined,
-						itemIndex: i,
-					});
-				}
-				throw new NodeOperationError(this.getNode(), 'Failed to create lead', {
-					description: error.message,
+				// NodeApiError's constructor returns an existing NodeApiError
+				// untouched, so re-wrapping one there silently discards both the
+				// added message and the item index. NodeOperationError wraps it,
+				// keeps its message, and records which item failed.
+				throw new NodeOperationError(this.getNode(), error as Error, {
 					itemIndex: i,
 				});
 			}
