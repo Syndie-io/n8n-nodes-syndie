@@ -5,7 +5,6 @@ on:
   push:
     branches:
       - main
-      - master
       - dev
 
 # Cancel in-progress runs for the same branch/PR to avoid wasting CI minutes.
