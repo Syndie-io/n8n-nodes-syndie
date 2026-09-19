@@ -35,11 +35,13 @@ export class SyndieOAuth2Api implements ICredentialType {
 	documentationUrl = 'https://github.com/Syndie-io/n8n-nodes-syndie#credentials';
 
 	properties: INodeProperties[] = [
+		// PKCE is chosen through the grant type. n8n's OAuth2 credential has no
+		// separate PKCE switch; a property named "pkce" is ignored.
 		{
 			displayName: 'Grant Type',
 			name: 'grantType',
 			type: 'hidden',
-			default: 'authorizationCode',
+			default: 'pkce',
 		},
 		{
 			displayName: 'Client ID',
@@ -48,6 +50,16 @@ export class SyndieOAuth2Api implements ICredentialType {
 			default: '',
 			required: true,
 			description: 'The Client ID Syndie issued for n8n',
+		},
+		// n8n's OAuth2 credential always requires a Client Secret. Syndie does not
+		// issue one and never checks it, so it is filled in and hidden rather
+		// than left for the person to guess at.
+		{
+			displayName: 'Client Secret',
+			name: 'clientSecret',
+			type: 'hidden',
+			typeOptions: { password: true },
+			default: 'not-used',
 		},
 		{
 			displayName: 'API Base URL',
@@ -71,12 +83,6 @@ export class SyndieOAuth2Api implements ICredentialType {
 			type: 'hidden',
 			default: `${BASE_URL_EXPRESSION}${SYNDIE_N8N_API_PATH}/oauth/token`,
 			required: true,
-		},
-		{
-			displayName: 'Use PKCE',
-			name: 'pkce',
-			type: 'hidden',
-			default: true,
 		},
 		{
 			displayName: 'Scope',

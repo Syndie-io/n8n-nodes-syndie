@@ -72,7 +72,7 @@ export class SyndieTrigger implements INodeType {
 		icon: { light: 'file:SyndieLogo.svg', dark: 'file:SyndieLogo.dark.svg' },
 		group: ['trigger'],
 		version: 1,
-		subtitle: '={{ ($parameter["events"] || []).length === 6 ? "All events" : ($parameter["events"] || []).length + " event(s)" }}',
+		subtitle: '={{ ($parameter["events"] || []).length === 7 ? "All events" : ($parameter["events"] || []).length + " event(s)" }}',
 		description: 'Starts the workflow when something happens to a lead in Syndie',
 		defaults: {
 			name: 'Syndie Trigger',

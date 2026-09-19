@@ -13,7 +13,7 @@ import {
 } from '../../credentials/SyndieOAuth2Api.credentials';
 
 /**
- * The six events the backend can deliver. `value` is the name the backend
+ * The events the backend can deliver. `value` is the name the backend
  * expects in `event_type`; `name` is what the person sees in the node.
  * Sorted by display name, which is what the n8n linter checks.
  */
@@ -44,6 +44,11 @@ export const SYNDIE_EVENTS: INodePropertyOptions[] = [
 		description: 'The lead booked a meeting',
 	},
 	{
+		name: 'New Contact',
+		value: 'lead.created',
+		description: 'A new contact was added to Syndie, by any import, the API or by hand',
+	},
+	{
 		name: 'Status Changed',
 		value: 'lead.status_changed',
 		description: "Somebody changed the lead's status in Syndie",
@@ -51,6 +56,18 @@ export const SYNDIE_EVENTS: INodePropertyOptions[] = [
 ];
 
 export const ALL_EVENT_VALUES = SYNDIE_EVENTS.map((event) => event.value as string);
+
+/**
+ * Events the backend only sends to a subscription that names them. A
+ * "default" subscription never receives them: a large CRM import would
+ * otherwise flood every workflow that simply ticked every event.
+ */
+export const OPT_IN_ONLY_EVENTS = ['lead.created'];
+
+/** The events a "default" subscription receives. */
+export const DEFAULT_COVERED_EVENTS = ALL_EVENT_VALUES.filter(
+	(event) => !OPT_IN_ONLY_EVENTS.includes(event),
+);
 
 /** What the backend calls "every event on one subscription". */
 export const DEFAULT_EVENT_TYPE = 'default';
@@ -110,8 +127,11 @@ export function resolveEventTypes(this: SyndieContext, selected: string[]): stri
 	if (wanted.length === 0) {
 		throw new NodeOperationError(this.getNode(), 'Pick at least one event to listen for');
 	}
-	if (ALL_EVENT_VALUES.every((event) => wanted.includes(event))) {
-		return [DEFAULT_EVENT_TYPE];
+	if (DEFAULT_COVERED_EVENTS.every((event) => wanted.includes(event))) {
+		return [
+			DEFAULT_EVENT_TYPE,
+			...wanted.filter((event) => OPT_IN_ONLY_EVENTS.includes(event)),
+		];
 	}
 	return wanted;
 }

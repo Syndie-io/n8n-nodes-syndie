@@ -66,7 +66,8 @@ function credential() {
 				'={{ $self["baseUrl"].replace(/\\/+$/, "") }}/api/integrations/automation/n8n/oauth/token',
 		`${byName.authUrl.default} | ${byName.accessTokenUrl.default}`,
 	);
-	check('PKCE stays on', byName.pkce.default === true);
+	check('PKCE is on, chosen the way n8n reads it', byName.grantType.default === 'pkce' && byName.pkce === undefined);
+	check('the Client Secret n8n requires is filled in and hidden', byName.clientSecret.type === 'hidden' && byName.clientSecret.default !== '');
 }
 
 // ─── the signature helpers ─────────────────────────────────────────────────
@@ -127,8 +128,10 @@ function staticData() {
 function events() {
 	console.log('\nevents and URLs');
 	const ctx = { getNode: node };
-	check('six events, sorted by display name', helpers.SYNDIE_EVENTS.length === 6 && helpers.SYNDIE_EVENTS.map((e) => e.name).join() === [...helpers.SYNDIE_EVENTS.map((e) => e.name)].sort().join());
-	check('all six becomes default', JSON.stringify(helpers.resolveEventTypes.call(ctx, [...helpers.ALL_EVENT_VALUES])) === '["default"]');
+	check('seven events, sorted by display name', helpers.SYNDIE_EVENTS.length === 7 && helpers.SYNDIE_EVENTS.map((e) => e.name).join() === [...helpers.SYNDIE_EVENTS.map((e) => e.name)].sort().join());
+	check('the original six become default', JSON.stringify(helpers.resolveEventTypes.call(ctx, [...helpers.DEFAULT_COVERED_EVENTS])) === '["default"]');
+	check('every event is default plus its own subscription for new contacts', JSON.stringify(helpers.resolveEventTypes.call(ctx, [...helpers.ALL_EVENT_VALUES])) === '["default","lead.created"]');
+	check('new contacts alone is one subscription', JSON.stringify(helpers.resolveEventTypes.call(ctx, ['lead.created'])) === '["lead.created"]');
 	check('a subset stays a subset', JSON.stringify(helpers.resolveEventTypes.call(ctx, ['lead.replied', 'nonsense'])) === '["lead.replied"]');
 	const empty = (() => { try { helpers.resolveEventTypes.call(ctx, []); return null; } catch (e) { return e; } })();
 	check('nothing selected is refused', empty !== null && empty.constructor.name === 'NodeOperationError');
@@ -184,7 +187,7 @@ async function trigger() {
 	check('the URL comes from the credential, trailing slash removed', posted[0].url === 'https://dev-api.syndie.io/api/integrations/automation/n8n/hooks/subscribe', posted[0].url);
 	check('subscriptions and secrets are remembered', ctx.staticData.subscriptions.length === 2 && ctx.staticData.subscriptions.every((s) => s.signingSecret.length === 64));
 
-	ctx = hookContext({ events: [...helpers.ALL_EVENT_VALUES], staticData: { webhookId: 'legacy' } });
+	ctx = hookContext({ events: [...helpers.DEFAULT_COVERED_EVENTS], staticData: { webhookId: 'legacy' } });
 	await methods.create.call(ctx);
 	check(
 		'all six: one default subscription, and the record left by an older version is removed rather than stranded',

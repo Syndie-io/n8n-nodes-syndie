@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.0 — 2026-09-21
+
+Needs the Syndie backend release that sends the New Contact event. Until that
+reaches production, New Contact does not fire there and Import/Find still answer
+404 on production, as in 0.4.0; point the credential's API Base URL at a backend
+that has them, or wait for the production release.
+
+### Trigger
+- **New Contact** event (lead.created): starts a workflow when a contact is added
+  to Syndie. Choosing every event still makes one subscription for the original
+  six, plus one for New Contact.
+
+### Credential
+- **PKCE is on.** The credential uses n8n's PKCE grant type, so a sign-in code is
+  of no use to anyone who intercepts it.
+- **No Client Secret to type.** Syndie issues none; the field is hidden and
+  filled in. Credentials saved before keep working.
+
 ## 0.4.0 — 2026-09-09
 
 Needs the Syndie backend release that delivers events. Until that reaches
